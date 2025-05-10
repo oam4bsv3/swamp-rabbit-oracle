@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: '18'
 
-      # 3. Install NPM/Yarn dependencies
+      # 3. Install JS dependencies
       - name: Install JS dependencies
         run: yarn install --frozen-lockfile
 
@@ -34,21 +34,17 @@ jobs:
           distribution: temurin
           java-version: '11'
 
-      # 5. Download & install Android SDK command‑line tools,
-      #    accept licenses, and add platform‑tools to PATH
+      # 5. Download & install Android SDK components
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          # installs the SDK cmdline‑tools (16.0), platform‑tools, and build‑tools
-          packages: |
-            tools
+          api-level: 33
+          build-tools: 33.0.0
+          extra-packages: |
             platform-tools
-            'platforms;android-33'
-            'build-tools;33.0.0'
-          accept-android-sdk-licenses: true
-          cmdline-tools-version: 8512546  # long version for tools 7.0
+            'cmdline-tools;latest'
 
-      # 6. Generate an ephemeral keystore each run
+      # 6. Generate an ephemeral keystore password
       - name: Generate random keystore password
         id: genpw
         run: |
@@ -69,7 +65,7 @@ jobs:
             -keypass   ${{ steps.genpw.outputs.PASS }} \
             -dname     "$KEY_DNAME"
 
-      # 8. Configure Gradle with that keystore
+      # 8. Configure Gradle signing
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
