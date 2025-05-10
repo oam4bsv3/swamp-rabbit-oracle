@@ -46,7 +46,7 @@ jobs:
             'platforms;android-33'
             'build-tools;33.0.0'
           accept-android-sdk-licenses: true
-          cmdline-tools-version: 8512546  # long version for tools 7.0 0
+          cmdline-tools-version: 8512546  # long version for tools 7.0
 
       # 6. Generate an ephemeral keystore each run
       - name: Generate random keystore password
@@ -54,6 +54,7 @@ jobs:
         run: |
           echo "::set-output name=PASS::$(openssl rand -hex 16)"
 
+      # 7. Create ephemeral keystore
       - name: Create ephemeral keystore
         run: |
           mkdir -p android/app
@@ -68,7 +69,7 @@ jobs:
             -keypass   ${{ steps.genpw.outputs.PASS }} \
             -dname     "$KEY_DNAME"
 
-      # 7. Configure Gradle with that keystore
+      # 8. Configure Gradle with that keystore
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
@@ -78,14 +79,14 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=${{ steps.genpw.outputs.PASS }}
           EOF
 
-      # 8. Build the release APK
+      # 9. Build the release APK
       - name: Build Release APK
         working-directory: android
         run: ./gradlew clean assembleRelease
 
-      # 9. Upload the APK as an artifact
-      - name: Upload APK
-        uses: actions/upload-artifact@v3
+      # 10. Upload the APK as an artifact
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
-          path: app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
