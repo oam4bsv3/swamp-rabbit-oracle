@@ -1,4 +1,4 @@
-name: Build Android APK (Ephemeral Keystore)
+name: Build Android APK
 
 on:
   push:
@@ -8,22 +8,52 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     env:
-      KEY_ALIAS: swamprabbit      # fixed alias
+      KEY_ALIAS: swamprabbit
       KEY_DNAME: "CN=Swamp Rabbit, OU=Dev, O=You, L=City, ST=State, C=US"
 
     steps:
+      # 1. Checkout your code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. Generate a random keystore password
-      - name: Generate random password
+      # 2. Setup Node.js (for Yarn/npm)
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # 3. Install NPM/Yarn dependencies
+      - name: Install JS dependencies
+        run: yarn install --frozen-lockfile
+
+      # 4. Setup Java 11
+      - name: Setup Java 11
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      # 5. Download & install Android SDK command‑line tools,
+      #    accept licenses, and add platform‑tools to PATH
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # installs the SDK cmdline‑tools (16.0), platform‑tools, and build‑tools
+          packages: |
+            tools
+            platform-tools
+            'platforms;android-33'
+            'build-tools;33.0.0'
+          accept-android-sdk-licenses: true
+          cmdline-tools-version: 8512546  # long version for tools 7.0 0
+
+      # 6. Generate an ephemeral keystore each run
+      - name: Generate random keystore password
         id: genpw
         run: |
           echo "::set-output name=PASS::$(openssl rand -hex 16)"
 
-      # 2. Create a new keystore with that password
       - name: Create ephemeral keystore
         run: |
           mkdir -p android/app
@@ -38,16 +68,8 @@ jobs:
             -keypass   ${{ steps.genpw.outputs.PASS }} \
             -dname     "$KEY_DNAME"
 
-      # 3. Setup JDK 11
-      - uses: actions/setup-java@v3
-        with:
-          distribution: temurin
-          java-version: '11'
-
-      # … (Android SDK install, caches, npm/Yarn install) …
-
-      # 4. Inject the dynamic password into gradle.properties
-      - name: Configure signing in Gradle
+      # 7. Configure Gradle with that keystore
+      - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
           MYAPP_UPLOAD_STORE_FILE=my-release-key.jks
@@ -56,13 +78,14 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=${{ steps.genpw.outputs.PASS }}
           EOF
 
-      # 5. Build the APK
+      # 8. Build the release APK
       - name: Build Release APK
         working-directory: android
         run: ./gradlew clean assembleRelease
 
-      # 6. Upload APK
-      - uses: actions/upload-artifact@v3
+      # 9. Upload the APK as an artifact
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
         with:
           name: app-release.apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: app/build/outputs/apk/release/app-release.apk
