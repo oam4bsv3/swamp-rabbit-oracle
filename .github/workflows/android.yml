@@ -13,7 +13,7 @@ jobs:
       KEY_DNAME: "CN=Swamp Rabbit, OU=Dev, O=You, L=City, ST=State, C=US"
 
     steps:
-      # 1. Checkout your code
+      # 1. Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -23,9 +23,9 @@ jobs:
         with:
           node-version: '18'
 
-      # 3. Install JS dependencies
+      # 3. Install JS dependencies with Yarn
       - name: Install JS dependencies
-        run: npm ci
+        run: yarn install --frozen-lockfile
 
       # 4. Setup Java 17
       - name: Setup Java 17
