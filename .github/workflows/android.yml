@@ -13,32 +13,28 @@ jobs:
       KEY_DNAME: "CN=Swamp Rabbit, OU=Dev, O=You, L=City, ST=State, C=US"
 
     steps:
-      # 1. Checkout your code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-      # 3. Install JS dependencies
       - name: Install JS dependencies
         run: yarn install --frozen-lockfile
 
-      # 4. Setup Java 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: '17'
 
-      # 5. Install Android SDK components
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: |
+          # strip the trailing newline so we don’t get an empty-package entry
+          packages: |-
             platforms;android-33
             build-tools;33.0.0
             platform-tools
@@ -46,11 +42,9 @@ jobs:
           cmdline-tools-version: latest
           accept-android-sdk-licenses: true
 
-      # 6. Generate and export a random keystore password
       - name: Generate random keystore password
         run: echo "KEYSTORE_PASS=$(openssl rand -hex 16)" >> $GITHUB_ENV
 
-      # 7. Create an ephemeral JKS keystore
       - name: Create ephemeral keystore
         run: |
           mkdir -p android/app
@@ -65,7 +59,6 @@ jobs:
             -keypass   $KEYSTORE_PASS \
             -dname     "$KEY_DNAME"
 
-      # 8. Wire the keystore into Gradle
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
@@ -75,16 +68,13 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=$KEYSTORE_PASS
           EOF
 
-      # 9. Ensure the Gradle wrapper is executable
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
 
-      # 10. Build the release APK
       - name: Build Release APK
         working-directory: android
         run: ./gradlew clean assembleRelease
 
-      # 11. Upload the signed APK as an artifact
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
