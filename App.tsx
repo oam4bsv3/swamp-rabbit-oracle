@@ -1,4 +1,4 @@
-// App.tsx — Swamp Rabbit Café & Grocery Tree Oracle
+// App.tsx — Swamp Rabbit Tree Oracle
 // • Enhanced with GPT‑4o Vision, Secure AES‑GCM (env‑injected), Quantum, TinyLlama & AI
 // • Repairs: analytic CPU‑entropy, persistent settings, disabled buttons when offline, progress feedback
 // • Full prompt library included
