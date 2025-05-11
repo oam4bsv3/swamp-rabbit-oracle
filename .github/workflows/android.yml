@@ -17,30 +17,32 @@ jobs:
       # 1. Checkout code
       - uses: actions/checkout@v4
 
-      # 2. Setup Node.js & install JS deps
+      # 2. Setup Node.js & install JS dependencies
       - uses: actions/setup-node@v3
         with:
-          node-version: '18'                # Recommended to pin your Node version 8
+          node-version: '18'
       - run: yarn install --frozen-lockfile
 
-      # 3. Setup Java 17
+      # 3. Setup Java 17 for Android Gradle Plugin
       - uses: actions/setup-java@v3
         with:
           distribution: temurin
-          java-version: '17'                # Android Gradle Plugin now targets Java 17+ 9
+          java-version: '17'
 
-      # 4. Install Android SDK + build tools
+      # 4. Install Android SDK components (API 33 & build-tools)
       - uses: android-actions/setup-android@v3
         with:
-          accept-android-sdk-licenses: true  # Must accept SDK licenses before use
-          cmdline-tools-version: 9477386     # CLI tools version “9.0” long build number 10
+          accept-android-sdk-licenses: true
+          cmdline-tools-version: 9477386
           packages: "platform-tools platforms;android-33 build-tools;33.0.0"
 
-      # 5. Generate & export a random keystore password
-      - run: echo "KEYSTORE_PASS=$(openssl rand -hex 16)" >> $GITHUB_ENV
+      # 5. Generate an ephemeral keystore password
+      - name: Generate keystore password
+        run: echo "KEYSTORE_PASS=$(openssl rand -hex 16)" >> $GITHUB_ENV
 
-      # 6. Create an ephemeral JKS keystore
-      - run: |
+      # 6. Create ephemeral JKS keystore
+      - name: Create ephemeral keystore
+        run: |
           mkdir -p android/app
           keytool -genkeypair \
             -v \
@@ -53,8 +55,9 @@ jobs:
             -keypass   $KEYSTORE_PASS \
             -dname     "$KEY_DNAME"
 
-      # 7. Configure Gradle for signing
-      - run: |
+      # 7. Configure Gradle for signing with the generated keystore
+      - name: Configure Gradle signing
+        run: |
           cat <<EOF >> android/gradle.properties
           MYAPP_UPLOAD_STORE_FILE=my-release-key.jks
           MYAPP_UPLOAD_KEY_ALIAS=$KEY_ALIAS
@@ -62,14 +65,12 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=$KEYSTORE_PASS
           EOF
 
-      # 8. Ensure gradlew is executable
-      - run: chmod +x android/gradlew
-
-      # 9. Build the APK
-      - working-directory: android
+      # 8. Build the release APK
+      - name: Build Release APK
+        working-directory: android
         run: ./gradlew clean assembleRelease
 
-      # 10. Upload the artifact
+      # 9. Upload the signed APK as an artifact
       - uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
