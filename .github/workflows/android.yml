@@ -18,53 +18,52 @@ jobs:
       KEY_DNAME: "CN=Swamp Rabbit, OU=Dev, O=You, L=City, ST=State, C=US"
 
     steps:
-      # 1. Checkout code
-      - name: Checkout code
+      # 1. Check out your code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      # 2. Node.js & JS deps
-      - name: Setup Node.js & install deps
+      # 2. Install Node.js & JS deps
+      - name: Setup Node & Install JS deps
         uses: actions/setup-node@v3
         with:
           node-version: '18'
       - run: yarn install --frozen-lockfile
 
-      # 3. JDK 17
+      # 3. Install JDK 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: '17'
 
-      # 4. Install legacy Android SDK Tools & SDK packages
+      # 4. Download & unpack legacy SDK Tools, then install SDK packages
       - name: Install Android SDK Tools & packages
         run: |
           sudo apt-get update
           sudo apt-get install -y wget unzip
 
-          # Prepare SDK root and suppress warnings
+          # Prepare SDK root & suppress sdkmanager warnings
           mkdir -p $ANDROID_SDK_ROOT
           mkdir -p $HOME/.android
           touch    $HOME/.android/repositories.cfg
 
-          # Download legacy SDK Tools
+          # Download legacy SDK Tools bundle
           wget https://dl.google.com/android/repository/sdk-tools-linux-4333796.zip \
             -O /tmp/sdk-tools.zip
           unzip /tmp/sdk-tools.zip -d $ANDROID_SDK_ROOT
 
-          # Add sdkmanager & adb to PATH
-          echo "export PATH=$ANDROID_SDK_ROOT/tools/bin:$ANDROID_SDK_ROOT/platform-tools:\$PATH" \
-            >> $GITHUB_ENV
+          # Define the absolute path to sdkmanager
+          SDKMGR="$ANDROID_SDK_ROOT/tools/bin/sdkmanager"
 
-          # Install platform-tools, API 33, build-tools 33.0.0
-          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
-          yes | sdkmanager --licenses
+          # Install platform‑tools, API 33, build‑tools 33.0.0
+          $SDKMGR "platform-tools" "platforms;android-33" "build-tools;33.0.0"
+          yes | $SDKMGR --licenses
 
       # 5. Generate & export a random keystore password
       - name: Generate keystore password
         run: echo "KEYSTORE_PASS=$(openssl rand -hex 16)" >> $GITHUB_ENV
 
-      # 6. Create ephemeral keystore
+      # 6. Create an ephemeral keystore
       - name: Create ephemeral keystore
         run: |
           mkdir -p android/app
@@ -79,7 +78,7 @@ jobs:
             -keypass   $KEYSTORE_PASS \
             -dname     "$KEY_DNAME"
 
-      # 7. Wire keystore into Gradle
+      # 7. Wire the keystore into Gradle
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
@@ -98,8 +97,8 @@ jobs:
         working-directory: android
         run: ./gradlew clean assembleRelease
 
-      # 10. Upload the signed APK
-      - name: Upload APK artifact
+      # 10. Upload the signed APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
