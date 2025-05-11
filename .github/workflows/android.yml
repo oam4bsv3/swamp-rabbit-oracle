@@ -9,65 +9,64 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      # Standard Android SDK locations
       ANDROID_SDK_ROOT: $HOME/Android/Sdk
       ANDROID_HOME:     $HOME/Android/Sdk
 
-      # Keystore settings
       KEY_ALIAS: swamprabbit
       KEY_DNAME: "CN=Swamp Rabbit, OU=Dev, O=You, L=City, ST=State, C=US"
 
     steps:
-      # 1. Checkout your code
+      # 1. Checkout the repo
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Install Node.js & JS deps
+      # 2. Node.js & JS deps
       - name: Setup Node.js & install deps
         uses: actions/setup-node@v3
         with:
           node-version: '18'
       - run: yarn install --frozen-lockfile
 
-      # 3. Install JDK 17
+      # 3. JDK 17
       - name: Setup Java 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: '17'
 
-      # 4. Manually install Android SDK command‑line tools
-      - name: Install Android SDK CLT
+      # 4. Manual Android SDK Command‑Line Tools install
+      - name: Install Android SDK CLT & packages
         run: |
           sudo apt-get update
           sudo apt-get install -y wget unzip
 
-          # Create SDK root
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          # Suppress sdkmanager warnings
+          mkdir -p $HOME/.android
+          touch $HOME/.android/repositories.cfg
 
-          # Download & unzip
-          wget https://dl.google.com/android/repository/commandlinetools-linux-9477382_latest.zip \
+          # Download the correct CLI tools (9.0 → long version 9477386) 0
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip \
             -O /tmp/cmdline-tools.zip
           unzip /tmp/cmdline-tools.zip -d $ANDROID_SDK_ROOT/cmdline-tools
           mv $ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
 
-          # Add sdkmanager & platform‑tools to PATH
+          # Add to PATH
           echo "export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:\$PATH" \
             >> $GITHUB_ENV
-          source $GITHUB_ENV
 
-          # Install platform‑tools, API 33, build‑tools 33.0.0
+          # Install platform-tools, API 33, build-tools 33.0.0
           sdkmanager --sdk_root=$ANDROID_SDK_ROOT \
             "platform-tools" \
             "platforms;android-33" \
             "build-tools;33.0.0"
           yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses
 
-      # 5. Generate & export a random keystore password
+      # 5. Generate & export a keystore password
       - name: Generate keystore password
         run: echo "KEYSTORE_PASS=$(openssl rand -hex 16)" >> $GITHUB_ENV
 
-      # 6. Create ephemeral JKS keystore
+      # 6. Create ephemeral keystore
       - name: Create ephemeral keystore
         run: |
           mkdir -p android/app
@@ -82,7 +81,7 @@ jobs:
             -keypass   $KEYSTORE_PASS \
             -dname     "$KEY_DNAME"
 
-      # 7. Wire the keystore into Gradle
+      # 7. Wire keystore into Gradle
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
@@ -92,7 +91,7 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=$KEYSTORE_PASS
           EOF
 
-      # 8. Ensure the Gradle wrapper is executable
+      # 8. Ensure Gradle wrapper is executable
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
@@ -101,7 +100,7 @@ jobs:
         working-directory: android
         run: ./gradlew clean assembleRelease
 
-      # 10. Upload the APK artifact
+      # 10. Upload the signed APK
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
