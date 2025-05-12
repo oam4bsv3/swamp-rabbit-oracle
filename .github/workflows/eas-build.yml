@@ -1,4 +1,4 @@
-name: Android APK (auto-scaffold + API 33 stable build)
+name: Android APK (SDK‑first + API 33 build)
 
 on:
   push:
@@ -15,24 +15,32 @@ jobs:
       KEY_ALIAS: swamprabbit
 
     steps:
-      # 0 – Check out full history so we can commit scaffold
+      # 1 – Install Android SDK (must come first)
+      - name: Install Android SDK (API 33 stable)
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: |
+            platform-tools
+            platforms;android-33
+            build-tools;33.0.2
+
+      # 2 – Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 1 – Always scaffold & prebuild the Expo native project
+      # 3 – Bootstrap & prebuild Expo native project
       - name: Bootstrap & prebuild Expo native
         run: |
           set -euo pipefail
           echo "::notice::Bootstrapping Expo native project…"
 
-          APP_NAME="SwampRabbitApp"
-          TEMPLATE="expo-template-blank-typescript"
-          npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --yes --no-install
+          npx create-expo-app@latest SwampRabbitApp -t expo-template-blank-typescript --yes --no-install
           shopt -s dotglob
-          mv "$APP_NAME"/* .
-          rm -rf "$APP_NAME"
+          mv SwampRabbitApp/* .
+          rm -rf SwampRabbitApp
 
           yarn install --frozen-lockfile
           yarn add \
@@ -55,7 +63,7 @@ jobs:
 
           npx expo prebuild --no-install --non-interactive
 
-      # 2 – Node/Yarn setup
+      # 4 – Set up Node.js & Yarn
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
@@ -64,28 +72,19 @@ jobs:
 
       - run: yarn install --frozen-lockfile
 
-      # 3 – Java & Android SDK (API 33)
+      # 5 – Set up Java 17
       - name: Set up Java 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Install Android SDK (API 33 stable)
-        uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: true
-          packages: |
-            platform-tools
-            platforms;android-33
-            build-tools;33.0.2
-
-      # 4 – Ensure Gradle wrapper is present
+      # 6 – Ensure Gradle wrapper
       - name: Install Gradle wrapper
         working-directory: android
         run: ./gradlew wrapper
 
-      # 5 – Generate a fresh keystore per run
+      # 7 – Generate a fresh keystore each run
       - name: Generate signing keystore
         run: |
           STORE_PASS=$(openssl rand -hex 16)
@@ -102,7 +101,7 @@ jobs:
             -keypass  "$KEY_PASS" \
             -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
 
-      # 6 – Inject signing into Gradle
+      # 8 – Configure Gradle signing
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
@@ -112,7 +111,7 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=${{ env.KEY_PASS }}
           EOF
 
-      # 7 – Build and upload the signed APK
+      # 9 – Build and upload the signed APK
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
