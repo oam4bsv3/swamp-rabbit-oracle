@@ -8,12 +8,13 @@ on:
 permissions:
   contents: write
 
+env:
+  KEY_ALIAS: swamprabbit
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      KEY_ALIAS: swamprabbit
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       # 1️⃣ Install only the base SDK tools & platform-tools
@@ -27,10 +28,12 @@ jobs:
       - name: Manually install Android 33 & build-tools 33.0.2
         run: |
           set -eux
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
-            "platforms;android-33" "build-tools;33.0.2"
-          # Verify
-          "$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --list | grep "33"
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/16.0/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2"
+          # Verify installation
+          "${ANDROID_SDK_ROOT}/cmdline-tools/16.0/bin/sdkmanager" --list | grep "33"
 
       # 3️⃣ Checkout your code
       - name: Checkout repository
@@ -46,7 +49,6 @@ jobs:
 
           APP_NAME="SwampRabbitApp"
           TEMPLATE="expo-template-blank-typescript"
-          ENV_FILE=".env"
 
           # 4a. Create managed project
           npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --yes --no-install
