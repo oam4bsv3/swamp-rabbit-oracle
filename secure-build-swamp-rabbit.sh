@@ -3,12 +3,22 @@
 set -e
 
 APP_NAME="SwampRabbitApp"
-KEYSTORE_FILE="android/app/release.keystore"
+KEYSTORE_DIR="android/app"
+KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
 ENV_FILE=".env"
 
-echo "==> Setting up project"
+KEY_ALIAS="swamprabbit"
+KEY_PASSWORD=$(openssl rand -hex 16)
+KEYSTORE_PASSWORD=$(openssl rand -hex 16)
+AES_KEY=$(openssl rand -hex 32)
+TINY_HASH=$(openssl rand -hex 32)
+
+echo "==> Initializing app"
 npx react-native init $APP_NAME --template react-native-template-typescript
 cd $APP_NAME
+
+echo "==> Ensuring .env is git-ignored"
+echo ".env" >> .gitignore
 
 echo "==> Installing dependencies"
 yarn add \
@@ -35,73 +45,48 @@ yarn add \
 echo "==> Installing iOS pods"
 cd ios && pod install && cd ..
 
-echo "==> Creating .env file with AES key and model hash"
-echo "TINYLLAMA_SHA256=$(openssl rand -hex 32)" > $ENV_FILE
-echo "ENCRYPTION_SECRET=$(openssl rand -hex 32)" >> $ENV_FILE
+echo "==> Writing .env with secure values"
+echo "ENCRYPTION_SECRET=$AES_KEY" > $ENV_FILE
+echo "TINYLLAMA_SHA256=$TINY_HASH" >> $ENV_FILE
 
-# Inject into iOS
-echo "==> Injecting ENV into iOS"
-cd ios
-echo "export $(cat ../.env | xargs)" > tmpenv.sh
-source tmpenv.sh
-cd ..
+echo "==> Generating Android keystore"
+mkdir -p $KEYSTORE_DIR
+keytool -genkeypair -v -keystore $KEYSTORE_FILE \
+  -alias $KEY_ALIAS -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass $KEYSTORE_PASSWORD -keypass $KEY_PASSWORD \
+  -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
 
-# Inject into Android build
-echo "==> Creating Android keystore from GitHub Secrets"
-# These must be stored as GitHub secrets
-echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > $KEYSTORE_FILE
-
-# Inject key info
+echo "==> Writing Gradle properties"
 cat <<EOF >> android/gradle.properties
 MYAPP_UPLOAD_STORE_FILE=release.keystore
-MYAPP_UPLOAD_KEY_ALIAS=${ANDROID_KEY_ALIAS}
-MYAPP_UPLOAD_STORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}
-MYAPP_UPLOAD_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}
+MYAPP_UPLOAD_KEY_ALIAS=$KEY_ALIAS
+MYAPP_UPLOAD_STORE_PASSWORD=$KEYSTORE_PASSWORD
+MYAPP_UPLOAD_KEY_PASSWORD=$KEY_PASSWORD
 EOF
 
-echo "==> Configuring Gradle signing"
-cat <<EOF >> android/app/build.gradle
+echo "==> Injecting signingConfigs into build.gradle"
+sed -i '/defaultConfig {/a \
+    signingConfigs {\n\
+        release {\n\
+            storeFile file(MYAPP_UPLOAD_STORE_FILE)\n\
+            storePassword MYAPP_UPLOAD_STORE_PASSWORD\n\
+            keyAlias MYAPP_UPLOAD_KEY_ALIAS\n\
+            keyPassword MYAPP_UPLOAD_KEY_PASSWORD\n\
+        }\n\
+    }' android/app/build.gradle
 
-android {
-    ...
-    signingConfigs {
-        release {
-            if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
-                storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
-            }
-        }
-    }
-    buildTypes {
-        release {
-            signingConfig signingConfigs.release
-            shrinkResources false
-            minifyEnabled false
-        }
-    }
-}
-EOF
+sed -i '/buildTypes {/a \
+    release {\n\
+        signingConfig signingConfigs.release\n\
+        shrinkResources false\n\
+        minifyEnabled false\n\
+    }' android/app/build.gradle
 
-echo "==> Building Android APK"
+echo "==> Building Android release APK"
 cd android && ./gradlew assembleRelease && cd ..
 
-echo "==> Building iOS Release (manual codesign)"
-xcodebuild -workspace ios/$APP_NAME.xcworkspace \
-           -scheme $APP_NAME \
-           -configuration Release \
-           -sdk iphoneos \
-           -archivePath ios/build/$APP_NAME.xcarchive \
-           archive
+echo "==> Cleaning up .env to avoid accidental commit"
+rm -f .env
 
-xcodebuild -exportArchive \
-           -archivePath ios/build/$APP_NAME.xcarchive \
-           -exportOptionsPlist ios/exportOptions.plist \
-           -exportPath ios/build
-
-echo "==> Build complete. Android APK is at:"
-echo "./android/app/build/outputs/apk/release/app-release.apk"
-
-echo "==> iOS IPA is inside:"
-echo "./ios/build/"
+echo "==> Done."
+echo "Release APK located at: android/app/build/outputs/apk/release/app-release.apk"
