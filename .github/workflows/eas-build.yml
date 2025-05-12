@@ -1,9 +1,12 @@
-name: Android APK (scaffold + secure build)
+name: Android APK (auto-scaffold + secure build)
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -73,14 +76,16 @@ jobs:
             -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
 
           cd android
-          gradle wrapper
+          ./gradlew wrapper
           cd ..
+
+          rm -f "$ENV_FILE"
 
           git config --global user.email "ci@github"
           git config --global user.name  "GitHub Actions"
           git add android ios app.json eas.json package.json yarn.lock || true
-          git commit -m "CI: scaffold Expo native project" || true
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
+          git commit -m "CI: scaffold native project with gradlew" || true
+          git push origin HEAD:${GITHUB_REF#refs/heads/} || true
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
