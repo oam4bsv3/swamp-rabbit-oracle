@@ -1,4 +1,4 @@
-name: Android APK (auto-scaffold + fresh keystore)
+name: Android APK (auto-scaffold + fresh keystore + gradlew)
 
 on:
   push:
@@ -17,11 +17,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Bootstrap Expo native projects (inline)
+      - name: Bootstrap Expo native projects
         if: ${{ hashFiles('android/gradlew') == '' }}
         run: |
           set -euo pipefail
-          echo "::notice::Bootstrapping native projects (first-time run)…"
+          echo "::notice::Bootstrapping Expo native projects (first run)…"
 
           APP_NAME="SwampRabbitApp"
           TEMPLATE="expo-template-blank-typescript"
@@ -33,7 +33,7 @@ jobs:
           KEYSTORE_PASSWORD=$(openssl rand -hex 16)
           KEY_PASSWORD=$(openssl rand -hex 16)
 
-          npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --yes --no-install --package-manager yarn
+          npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --yes --no-install
           shopt -s dotglob
           mv "$APP_NAME"/* .
           rm -rf "$APP_NAME"
@@ -85,15 +85,19 @@ jobs:
             "ios":     { "releaseChannel": "production" }
           }}}' > eas.json
 
+          cd android
+          gradle wrapper
+          cd ..
+
           rm -f "$ENV_FILE"
 
           git config --global user.email "ci@github"
           git config --global user.name  "GitHub Actions"
           git add android ios app.json eas.json package.json yarn.lock || true
-          git commit -m "CI: scaffold Expo native projects" || true
+          git commit -m "CI: scaffold native project with gradlew" || true
           git push origin HEAD:${GITHUB_REF#refs/heads/}
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 18
@@ -116,7 +120,7 @@ jobs:
             platforms;android-33
             build-tools;33.0.0
 
-      - name: Generate signing keystore
+      - name: Generate keystore for this build
         run: |
           STORE_PASS=$(openssl rand -hex 16)
           KEY_PASS=$(openssl rand -hex 16)
