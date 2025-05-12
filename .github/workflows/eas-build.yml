@@ -1,4 +1,4 @@
-name: Android APK (auto-scaffold + fresh keystore + gradlew)
+name: Android APK (scaffold + secure build)
 
 on:
   push:
@@ -17,11 +17,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Bootstrap Expo native projects
+      - name: Bootstrap Expo project (if missing)
         if: ${{ hashFiles('android/gradlew') == '' }}
         run: |
           set -euo pipefail
-          echo "::notice::Bootstrapping Expo native projects (first run)…"
+          echo "::notice::Bootstrapping Expo native project…"
 
           APP_NAME="SwampRabbitApp"
           TEMPLATE="expo-template-blank-typescript"
@@ -54,7 +54,6 @@ jobs:
             @react-navigation/native \
             @react-navigation/bottom-tabs \
             react-native-device-info \
-            tinyllama-react-native \
             axios \
             crypto-js
 
@@ -73,28 +72,14 @@ jobs:
             -keypass  "$KEY_PASSWORD" \
             -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
 
-          echo '{ "android": { "keystore": {
-            "keystorePath": "'"$KEYSTORE_FILE"'",
-            "keystorePassword": "'"$KEYSTORE_PASSWORD"'",
-            "keyAlias": "'"$KEY_ALIAS"'",
-            "keyPassword": "'"$KEY_PASSWORD"'"
-          }}}' > android/credentials.json
-
-          echo '{ "build": { "production": {
-            "android": { "buildType": "apk", "releaseChannel": "production" },
-            "ios":     { "releaseChannel": "production" }
-          }}}' > eas.json
-
           cd android
           gradle wrapper
           cd ..
 
-          rm -f "$ENV_FILE"
-
           git config --global user.email "ci@github"
           git config --global user.name  "GitHub Actions"
           git add android ios app.json eas.json package.json yarn.lock || true
-          git commit -m "CI: scaffold native project with gradlew" || true
+          git commit -m "CI: scaffold Expo native project" || true
           git push origin HEAD:${GITHUB_REF#refs/heads/}
 
       - name: Set up Node.js
@@ -120,7 +105,7 @@ jobs:
             platforms;android-33
             build-tools;33.0.0
 
-      - name: Generate keystore for this build
+      - name: Generate signing keystore
         run: |
           STORE_PASS=$(openssl rand -hex 16)
           KEY_PASS=$(openssl rand -hex 16)
