@@ -1,6 +1,6 @@
 // App.tsx — Swamp Rabbit Café & Grocery Tree Oracle
-// • GPT-4o Vision • Offline TinyLlama • AES-GCM encryption • SQLite storage
-// • Inline PennyLane-lite (JS-only, 1–7-qubit simulator — no external WASM)
+// • GPT-4o Vision • AES-GCM encryption • SQLite storage
+// • Inline PennyLane-lite (JS-only, 1–7-qubit simulator)
 
 import React, {
   useState,
@@ -42,13 +42,12 @@ import axios from 'axios';
 import CryptoJS from 'crypto-js';
 import Config from 'react-native-config';
 import RNFS from 'react-native-fs';
+import DeviceInfo from 'react-native-device-info';
 import { NavigationContainer, useFocusEffect } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import DeviceInfo from 'react-native-device-info';
-import { loadTinyLlama, runTinyLlama } from 'tinyllama-react-native';
 
 /* ════════════════════════════════════════════════════════════════════
-   PennyLane-lite  —  inline JS simulator (up to 7 qubits)
+   PennyLane-lite — inline JS simulator (1–7 qubits)
    ════════════════════════════════════════════════════════════════════ */
 export const loadWasm = async () => Promise.resolve();
 
@@ -62,9 +61,8 @@ export const createDevice = async (
   _name: string = 'default.qubit',
   { wires = 1 }: { wires?: number } = {},
 ) => {
-  if (wires < 1 || wires > 7) throw new Error('Stub supports 1–7 qubits');
+  if (wires < 1 || wires > 7) throw new Error('Supports 1–7 qubits');
   const dim = 1 << wires;
-
   const single = (ψ: C[], t: number, m: C[][]) => {
     for (let i = 0; i < dim; i++) {
       if ((i >> t) & 1) continue;
@@ -74,7 +72,6 @@ export const createDevice = async (
       ψ[j] = add(mul(m[1][0], a), mul(m[1][1], b));
     }
   };
-
   const cnot = (ψ: C[], ctl: number, tgt: number) => {
     for (let i = 0; i < dim; i++)
       if (((i >> ctl) & 1) && !((i >> tgt) & 1)) {
@@ -82,16 +79,12 @@ export const createDevice = async (
         [ψ[i], ψ[j]] = [ψ[j], ψ[i]];
       }
   };
-
   return {
-    run: async (
-      circ: { gate: string; wires: number[]; angle?: number }[] = [],
-    ) => {
+    run: async (circ: { gate: string; wires: number[]; angle?: number }[] = []) => {
       const ψ: C[] = Array.from({ length: dim }, (_, k) =>
         k === 0 ? [1, 0] : [0, 0],
       );
       const h = 1 / Math.sqrt(2);
-
       for (const op of circ) {
         const [w0, w1] = op.wires;
         switch (op.gate) {
@@ -127,142 +120,158 @@ export const createDevice = async (
             break;
         }
       }
-      return { probs: ψ.map(([re,im]) => re*re + im*im) };
+      return { probs: ψ.map(([re]) => re*re) };
     },
   };
 };
-/* ════════════════════════════════════════════════════════════════════ */
 
-// ─── Constants & Keys ────────────────────────────────────────────────
-const MODEL_URL =
-  'https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0/resolve/main/tinyllama_model.bin';
-const MODEL_PATH = `${RNFS.DocumentDirectoryPath}/tinyllama_model.bin`;
-const EXPECTED_HASH = Config.TINYLLAMA_SHA256;
+/* ─── Constants ───────────────────────────────────────────────────── */
 const SETTINGS_KEY = 'APP_USER_SETTINGS';
 const KEY_STORAGE = 'APP_AES_KEY';
 const KEY_TIMESTAMP = 'APP_AES_KEY_TIMESTAMP';
-const KEY_ROTATION_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+const KEY_ROTATION_INTERVAL_MS = 30*24*60*60*1000;
 
-// ─── Theme & Styles ──────────────────────────────────────────────────
+/* ─── Theme & Styles ───────────────────────────────────────────────── */
 const theme = {
-  colors: {
-    bg: '#3E2723',
-    card: '#5D4037',
-    text: '#EFEBE9',
-    accent: '#D7CCC8',
-    buttonBg: '#A1887F',
-    inputBg: '#4E342E',
-    disabledBg: '#757575',
-  },
+  colors: { bg:'#3E2723', card:'#5D4037', text:'#EFEBE9', accent:'#D7CCC8',
+            buttonBg:'#A1887F', inputBg:'#4E342E', disabledBg:'#757575' },
   fonts: {
-    heading: { fontFamily: 'Georgia', fontSize: 24, fontWeight: '600' },
-    body:    { fontFamily: 'System',  fontSize: 16, fontWeight: '400' },
-    label:   { fontFamily: 'System',  fontSize: 16, fontWeight: '500' },
-    code:    { fontFamily: 'Courier', fontSize: 16, fontWeight: '400' },
+    heading:{ fontFamily:'Georgia', fontSize:24, fontWeight:'600' },
+    body:   { fontFamily:'System',  fontSize:16, fontWeight:'400' },
+    label:  { fontFamily:'System',  fontSize:16, fontWeight:'500' },
+    code:   { fontFamily:'Courier', fontSize:16, fontWeight:'400' },
   },
-  space:  [4, 8, 16, 24, 32],
-  radii:  [4, 8, 16, 30],
+  space:[4,8,16,24,32], radii:[4,8,16,30],
 } as const;
 
 const styles = StyleSheet.create({
-  splash: {
-    flex: 1, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: theme.colors.bg
+  splash:{ flex:1,justifyContent:'center',alignItems:'center',backgroundColor:theme.colors.bg },
+  splashText:{ ...theme.fonts.heading,color:theme.colors.accent,fontSize:28,
+    textAlign:'center',textShadowColor:'#000',textShadowOffset:{width:1,height:1},
+    textShadowRadius:6,paddingHorizontal:theme.space[2],
   },
-  splashText: {
-    ...theme.fonts.heading,
-    color: theme.colors.accent,
-    fontSize: 28,
-    textAlign: 'center',
-    textShadowColor: '#000',
-    textShadowOffset: { width:1, height:1 },
-    textShadowRadius: 6,
-    paddingHorizontal: theme.space[2],
+  main:{ flex:1,backgroundColor:theme.colors.bg },
+  body:{ padding:theme.space[2],paddingBottom:theme.space[4] },
+  heading:{ ...theme.fonts.heading,color:theme.colors.accent,marginBottom:theme.space[2],
+    textAlign:'center',letterSpacing:1 },
+  label:{ ...theme.fonts.label,color:theme.colors.text,marginBottom:4 },
+  text:{ ...theme.fonts.body,color:theme.colors.text,lineHeight:24,marginVertical:4 },
+  input:{ ...theme.fonts.code,backgroundColor:theme.colors.inputBg,color:theme.colors.text,
+    borderRadius:theme.radii[1],padding:theme.space[2],marginVertical:4,
+    borderWidth:1,borderColor:theme.colors.accent
   },
-  main:        { flex:1, backgroundColor: theme.colors.bg },
-  body:        { padding: theme.space[2], paddingBottom: theme.space[4] },
-  heading:     { ...theme.fonts.heading, color: theme.colors.accent, marginBottom: theme.space[2], textAlign:'center', letterSpacing:1 },
-  label:       { ...theme.fonts.label, color: theme.colors.text, marginBottom:4 },
-  text:        { ...theme.fonts.body, color: theme.colors.text, lineHeight:24, marginVertical:4 },
-  input:       { ...theme.fonts.code, backgroundColor: theme.colors.inputBg, color:theme.colors.text, borderRadius:theme.radii[1], padding:theme.space[2], marginVertical:4, borderWidth:1, borderColor:theme.colors.accent },
-  slider:      { width:'100%', height:40, marginVertical:theme.space[2] },
-  imagePicker: { backgroundColor:theme.colors.card, height:220, borderRadius:theme.radii[2], justifyContent:'center', alignItems:'center', marginBottom:theme.space[3], borderWidth:1, borderColor:theme.colors.accent },
-  image:       { width:'100%', height:'100%', borderRadius:theme.radii[2] },
-  placeholder: { ...theme.fonts.body, color: theme.colors.accent, fontStyle:'italic' },
-  button:      { backgroundColor:theme.colors.buttonBg, borderRadius:theme.radii[3], paddingVertical:theme.space[2], paddingHorizontal:theme.space[3], alignItems:'center', marginVertical:theme.space[2], shadowColor:'#000', shadowOffset:{width:1,height:3}, shadowOpacity:0.3, shadowRadius:6, elevation:6 },
-  buttonDisabled:{ backgroundColor:theme.colors.disabledBg, borderRadius:theme.radii[3], paddingVertical:theme.space[2], paddingHorizontal:theme.space[3], alignItems:'center', marginVertical:theme.space[2] },
-  buttonText:  { ...theme.fonts.label, color:theme.colors.bg, fontWeight:'700', fontSize:16, textTransform:'uppercase', letterSpacing:1.2 },
-  error:       { color:'#F44336', textAlign:'center', marginVertical:4, fontWeight:'600' },
-  card:        { backgroundColor:theme.colors.card, borderRadius:theme.radii[2], padding:theme.space[3], marginVertical:theme.space[2], shadowColor:'#000', shadowOffset:{width:1,height:3}, shadowOpacity:0.3, shadowRadius:6, elevation:4 },
+  slider:{ width:'100%',height:40,marginVertical:theme.space[2] },
+  imagePicker:{ backgroundColor:theme.colors.card,height:220,borderRadius:theme.radii[2],
+    justifyContent:'center',alignItems:'center',marginBottom:theme.space[3],
+    borderWidth:1,borderColor:theme.colors.accent
+  },
+  image:{ width:'100%',height:'100%',borderRadius:theme.radii[2] },
+  placeholder:{ ...theme.fonts.body,color:theme.colors.accent,fontStyle:'italic' },
+  button:{ backgroundColor:theme.colors.buttonBg,borderRadius:theme.radii[3],
+    paddingVertical:theme.space[2],paddingHorizontal:theme.space[3],alignItems:'center',
+    marginVertical:theme.space[2],shadowColor:'#000',shadowOffset:{width:1,height:3},
+    shadowOpacity:0.3,shadowRadius:6,elevation:6
+  },
+  buttonDisabled:{ backgroundColor:theme.colors.disabledBg,borderRadius:theme.radii[3],
+    paddingVertical:theme.space[2],paddingHorizontal:theme.space[3],alignItems:'center',
+    marginVertical:theme.space[2]
+  },
+  buttonText:{ ...theme.fonts.label,color:theme.colors.bg,fontWeight:'700',fontSize:16,
+    textTransform:'uppercase',letterSpacing:1.2
+  },
+  error:{ color:'#F44336',textAlign:'center',marginVertical:4,fontWeight:'600' },
+  card:{ backgroundColor:theme.colors.card,borderRadius:theme.radii[2],
+    padding:theme.space[3],marginVertical:theme.space[2],
+    shadowColor:'#000',shadowOffset:{width:1,height:3},shadowOpacity:0.3,shadowRadius:6,
+    elevation:4
+  },
 });
 
-// ─── Encryption & Storage ─────────────────────────────────────────────
-function encryptStatic(text: string) {
-  const secret = Config.ENCRYPTION_SECRET;
+/* ─── Encryption Helpers ─────────────────────────────────────────────── */
+function encryptStatic(text:string){
   const iv = CryptoJS.lib.WordArray.random(12);
-  const encrypted = CryptoJS.AES.encrypt(text, CryptoJS.enc.Utf8.parse(secret), { iv, mode:CryptoJS.mode.GCM });
-  return JSON.stringify({ iv: iv.toString(CryptoJS.enc.Hex), ct: encrypted.ciphertext.toString(CryptoJS.enc.Base64) });
+  const encrypted = CryptoJS.AES.encrypt(text, CryptoJS.enc.Utf8.parse(Config.ENCRYPTION_SECRET), {
+    iv, mode:CryptoJS.mode.GCM
+  });
+  return JSON.stringify({
+    iv: iv.toString(CryptoJS.enc.Hex),
+    ct: encrypted.ciphertext.toString(CryptoJS.enc.Base64)
+  });
 }
-function decryptStatic(data: string): string {
+function decryptStatic(data:string){
   try {
     const { iv, ct } = JSON.parse(data);
-    const cipherParams = CryptoJS.lib.CipherParams.create({ ciphertext: CryptoJS.enc.Base64.parse(ct) });
-    const secret = Config.ENCRYPTION_SECRET;
-    const decrypted = CryptoJS.AES.decrypt(cipherParams, CryptoJS.enc.Utf8.parse(secret), { iv: CryptoJS.enc.Hex.parse(iv), mode:CryptoJS.mode.GCM });
-    return decrypted.toString(CryptoJS.enc.Utf8);
+    const cipherParams = CryptoJS.lib.CipherParams.create({
+      ciphertext: CryptoJS.enc.Base64.parse(ct)
+    });
+    const dec = CryptoJS.AES.decrypt(cipherParams, CryptoJS.enc.Utf8.parse(Config.ENCRYPTION_SECRET), {
+      iv: CryptoJS.enc.Hex.parse(iv), mode:CryptoJS.mode.GCM
+    });
+    return dec.toString(CryptoJS.enc.Utf8);
   } catch { return ''; }
 }
 
-let AES_KEY: string|null = null;
-async function initEncryptionKey() {
+let AES_KEY:string|null = null;
+async function initEncryptionKey(){
   const sk = await EncryptedStorage.getItem(KEY_STORAGE);
   const st = await EncryptedStorage.getItem(KEY_TIMESTAMP);
   let last = 0;
-  try { last = st ? parseInt(decryptStatic(st),10):0; } catch{}
-  const needs = !sk || !last || Date.now()-last>KEY_ROTATION_INTERVAL_MS;
-  if(sk && !needs) {
+  try { last = st? parseInt(decryptStatic(st),10):0; } catch{}
+  const needs = !sk || !last || Date.now()-last > KEY_ROTATION_INTERVAL_MS;
+  if(sk && !needs){
     AES_KEY = decryptStatic(sk);
   } else {
-    const newKey = CryptoJS.lib.WordArray.random(32).toString(CryptoJS.enc.Hex);
+    const newKey = CryptoJS.lib.WordArray.random(32).toString();
     await EncryptedStorage.setItem(KEY_STORAGE, encryptStatic(newKey));
     await EncryptedStorage.setItem(KEY_TIMESTAMP, encryptStatic(String(Date.now())));
     AES_KEY = newKey;
   }
 }
-function encrypt(text: string): string {
+function encrypt(text:string){
   if(!AES_KEY) throw new Error('Key not initialized');
   const iv = CryptoJS.lib.WordArray.random(12);
-  const ct = CryptoJS.AES.encrypt(text, CryptoJS.enc.Utf8.parse(AES_KEY), { iv, mode:CryptoJS.mode.GCM });
-  return JSON.stringify({ iv: iv.toString(CryptoJS.enc.Hex), ct: ct.ciphertext.toString(CryptoJS.enc.Base64) });
+  const ct = CryptoJS.AES.encrypt(text, CryptoJS.enc.Utf8.parse(AES_KEY), {
+    iv, mode:CryptoJS.mode.GCM
+  });
+  return JSON.stringify({
+    iv: iv.toString(CryptoJS.enc.Hex),
+    ct: ct.ciphertext.toString(CryptoJS.enc.Base64)
+  });
 }
-function decrypt(data: string): string {
+function decrypt(data:string){
   if(!AES_KEY) throw new Error('Key not initialized');
   try {
     const { iv, ct } = JSON.parse(data);
-    const params = CryptoJS.lib.CipherParams.create({ ciphertext:CryptoJS.enc.Base64.parse(ct) });
-    const dec = CryptoJS.AES.decrypt(params, CryptoJS.enc.Utf8.parse(AES_KEY), { iv: CryptoJS.enc.Hex.parse(iv), mode:CryptoJS.mode.GCM });
+    const params = CryptoJS.lib.CipherParams.create({ ciphertext: CryptoJS.enc.Base64.parse(ct) });
+    const dec = CryptoJS.AES.decrypt(params, CryptoJS.enc.Utf8.parse(AES_KEY), {
+      iv: CryptoJS.enc.Hex.parse(iv), mode:CryptoJS.mode.GCM
+    });
     return dec.toString(CryptoJS.enc.Utf8);
   } catch { return ''; }
 }
-const saveApiKey = async (key:string) => await EncryptedStorage.setItem('OPENAI_API_KEY', encrypt(key));
-const loadApiKey = async (): Promise<string|null> => {
+const saveApiKey = async (key:string) =>
+  await EncryptedStorage.setItem('OPENAI_API_KEY', encrypt(key));
+const loadApiKey = async () => {
   const e = await EncryptedStorage.getItem('OPENAI_API_KEY');
   return e? decrypt(e) : null;
 };
 
-// ─── Database Service ─────────────────────────────────────────────────
+/* ─── Database Service ───────────────────────────────────────────────── */
 class DBService {
   static db!: SQLite.SQLiteDatabase;
-  static init() {
-    this.db = SQLite.openDatabase({ name:'swamp_rabbit.db',location:'default' },
-      ()=>{ this.db.executeSql(`
-        CREATE TABLE IF NOT EXISTS scans(
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          prompt TEXT, response TEXT,
-          colorTag TEXT, colorVec TEXT,
-          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-      `); },
+  static init(){
+    this.db = SQLite.openDatabase(
+      { name:'swamp_rabbit.db', location:'default' },
+      ()=> {
+        this.db.executeSql(`
+          CREATE TABLE IF NOT EXISTS scans(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prompt TEXT, response TEXT,
+            colorTag TEXT, colorVec TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+      },
       e=>console.error(e)
     );
   }
@@ -276,56 +285,25 @@ class DBService {
   }
   static getScans(cb:(rows:any[])=>void){
     this.db.transaction(tx=>
-      tx.executeSql('SELECT * FROM scans ORDER BY timestamp DESC;',[],(_,_res)=>{
-        const raw = _res.rows.raw();
-        cb(raw.map((r:any)=>({
-          ...r,
-          prompt: decrypt(r.prompt),
-          response: decrypt(r.response),
-          colorTag: decrypt(r.colorTag),
-          colorVec: JSON.parse(decrypt(r.colorVec)),
-        })));
-      })
+      tx.executeSql(
+        'SELECT * FROM scans ORDER BY timestamp DESC;', [], (_,_res)=>{
+          const raw = _res.rows.raw();
+          cb(raw.map((r:any)=>({
+            ...r,
+            prompt: decrypt(r.prompt),
+            response: decrypt(r.response),
+            colorTag: decrypt(r.colorTag),
+            colorVec: JSON.parse(decrypt(r.colorVec)),
+          })));
+        })
     );
   }
 }
 
-// ─── TinyLlama (offline) Helpers ──────────────────────────────────────
-let tinyReady=false;
-async function initTiny(){ try{ await loadTinyLlama({modelPath:MODEL_PATH}); tinyReady=true;}catch{} }
-const isModelDownloaded = async()=> RNFS.exists(MODEL_PATH);
-
-function useTiny() {
-  const [loading,setLoading]=useState(false);
-  const [error,setError]=useState<string>();
-  const run = useCallback(async(prompt: string)=>{
-    if(!tinyReady) throw new Error('Offline model not ready');
-    setLoading(true); setError(undefined);
-    try {
-      const txt = await runTinyLlama(prompt,{maxTokens:128,temperature:0.7});
-      return txt.trim();
-    } catch(e:any){ setError(e.message); throw e;}
-    finally { setLoading(false); }
-  },[]);
-  return {run,loading,error};
-}
-
-// ─── CPU Entropy & Quantum Init ───────────────────────────────────────
-async function computeCpuEntropy(pct:number){
-  const angle=(pct/100)*Math.PI;
-  const p=Math.cos(angle/2)**2;
-  return -(p*Math.log2(p)+(1-p)*Math.log2(1-p));
-}
-let quantumDev:any;
-async function setupQuantum(){
-  await loadWasm();
-  quantumDev=await createDevice('default.qubit',{wires:1});
-}
-
-// ─── Full Advanced PROMPTS ─────────────────────────────────────────────
+/* ─── Advanced GPT Prompts ───────────────────────────────────────────── */
 const PROMPTS = {
   quantumRecipe: `
-[action] You are the **Swamp Rabbit Quantum‑Food Wellness AI**, a world‑class expert in synergizing farm‑to‑table culinary creativity with hypertime quantum risk forecasting, neurogastronomy, and community-driven flavor curation. [/action]
+[action] You are the **Swamp Rabbit Quantum‑Food Wellness AI**, a world‑class expert in synergizing farm‑to‑table culinary creativity with hypertime quantum risk forecasting, neurogastronomy, and community‑driven flavor curation. [/action]
 [context]
 - User dietary constraints: Lactose={lactoseSensitivity}, Peanut={peanutAllergy}, Vegan={veganPreference}
 - Past meal scans: {pastScans}
@@ -367,7 +345,6 @@ Generate **three** imaginative, nutrient‑dense recipes. For each:
 - Use detailed, sensory language.
 - Ensure keys match example exactly.
 [/instructions]`,
-
   ovenAI: `
 [action] You are the **Quantum Nosonar Oven Scanner AI**, merging high‑resolution image processing, CPU entropy profiling, and hypertime quantum safety analytics. [/action]
 [inputs]
@@ -401,7 +378,6 @@ Analyze oven image to provide:
 - Integers for percentages; two decimals for floats.
 - Respond with JSON only.
 [/instructions]`,
-
   capture: `
 [action] You are the **Swamp Rabbit Visual Scanner AI**, adept at hazard detection, plant/food classification, and interactive feedback with emoji annotations. [/action]
 [inputs]
@@ -425,7 +401,6 @@ Identify object type, estimate surfaceTemp(°C), list hazards with emojis, and s
 [instructions]
 - Output only the markdown block.
 [/instructions]`,
-
   foodCalendar: `
 [action] You are the **Swamp Rabbit AI Food Calendar**, specializing in dynamic meal planning, nutritional forecasting, and community taste trends over weekly & monthly horizons. [/action]
 [dietary]
@@ -457,7 +432,7 @@ Craft:
 [/instructions]`,
 };
 
-// ─── Hooks ───────────────────────────────────────────────────────────
+/* ─── Hooks ────────────────────────────────────────────────────────── */
 function useAI(systemPrompt: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
@@ -500,7 +475,7 @@ function useImagePicker() {
   const [image, setImage] = useState<Asset|null>(null);
   const pick = async () => {
     const res = await launchImageLibrary({ mediaType:'photo', includeBase64:true });
-    if(res.assets?.[0]) setImage(res.assets[0]);
+    if (res.assets?.[0]) setImage(res.assets[0]);
   };
   return { image, pick };
 }
@@ -509,11 +484,11 @@ function useCpuMonitor(interval=5000) {
   const [cpu, setCpu] = useState(0);
   useFocusEffect(useCallback(()=>{
     let active = true;
-    const fetchCpu = async ()=>{
+    const fetchCpu = async()=>{
       try {
         const load = await DeviceInfo.getSystemCpuLoad();
         if(active) setCpu(Math.round(load*100));
-      } catch {}
+      } catch{}
     };
     fetchCpu();
     const id = setInterval(fetchCpu, interval);
@@ -522,7 +497,7 @@ function useCpuMonitor(interval=5000) {
   return cpu;
 }
 
-// ─── Settings Context ──────────────────────────────────────────────────
+/* ─── Settings Context ─────────────────────────────────────────────── */
 interface Settings {
   lactoseSensitivity:number;
   peanutAllergy:boolean;
@@ -535,7 +510,7 @@ const SettingsContext = createContext<{
   settings:{lactoseSensitivity:0, peanutAllergy:false, veganPreference:0},
   update:()=>{},
 });
-const SettingsProvider:React.FC<{children:ReactNode}> = ({children})=>{
+const SettingsProvider: React.FC<{children:ReactNode}> = ({children})=>{
   const [settings,setSettings] = useState<Settings>({
     lactoseSensitivity:0, peanutAllergy:false, veganPreference:0
   });
@@ -551,66 +526,14 @@ const SettingsProvider:React.FC<{children:ReactNode}> = ({children})=>{
   return <SettingsContext.Provider value={{settings,update}}>{children}</SettingsContext.Provider>;
 };
 
-// ─── Shared Components ──────────────────────────────────────────────────
-const AIReplyCard:React.FC<{content:string}> = ({content})=>{
-  const {width} = useWindowDimensions();
-  const maxW = Math.min(width - theme.space[3], 600);
-  return (
-    <View style={[styles.card,{maxWidth:maxW}]}>
-      <Markdown style={{body:{color:theme.colors.text,fontSize:16,lineHeight:24}}}>
-        {content}
-      </Markdown>
-    </View>
-  );
-};
-
-const ColorTagStrip:React.FC<{jsonTag:string}> = ({jsonTag})=>{
-  let tag={palette:[] as string[],tagId:''};
-  try{ tag=JSON.parse(jsonTag);}catch{}
-  return (
-    <View style={{marginVertical:theme.space[2]}}>
-      <Text style={{color:theme.colors.accent,fontSize:12}}>Tag: {tag.tagId}</Text>
-      <View style={{flexDirection:'row',flexWrap:'wrap'}}>
-        {tag.palette.map((h,i)=>(
-          <Pressable key={i} onLongPress={()=>{
-            Clipboard.setString(h);
-            Alert.alert(`Copied ${h}`);
-          }}>
-            <View style={{
-              backgroundColor:h,width:20,height:20,margin:1,
-              borderRadius:2,borderWidth:1,borderColor:theme.colors.text
-            }} />
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-};
-
-// ─── Utility ───────────────────────────────────────────────────────────
-function findSimilarScans(targetVec:number[],scans:any[],topN=5){
-  const dist=(a:number[],b:number[])=>{
-    let sum=0;
-    for(let i=0;i<Math.min(a.length,b.length);i++){
-      sum+=(a[i]-b[i])**2;
-    }
-    return Math.sqrt(sum);
-  };
-  return scans
-    .map(s=>({...s,distance:dist(targetVec,s.colorVec)}))
-    .sort((a,b)=>a.distance-b.distance)
-    .slice(1,topN+1);
-}
-
-// ─── Screens ────────────────────────────────────────────────────────────
-const SplashScreen:React.FC<{onLoaded:()=>void}> = ({onLoaded})=>{
+/* ─── Screens ─────────────────────────────────────────────────────── */
+const SplashScreen: React.FC<{onLoaded:()=>void}> = ({onLoaded})=>{
   const fade = useRef(new Animated.Value(0)).current;
   useEffect(()=>{
     Animated.timing(fade,{toValue:1,duration:1200,easing:Easing.out(Easing.exp),useNativeDriver:true}).start();
     (async()=>{
       await initEncryptionKey();
-      await setupQuantum();
-      await initTiny();
+      await loadWasm();
       DBService.init();
       setTimeout(onLoaded,800);
     })();
@@ -624,7 +547,43 @@ const SplashScreen:React.FC<{onLoaded:()=>void}> = ({onLoaded})=>{
   );
 };
 
-const FoodScannerScreen:React.FC = () => {
+const AIReplyCard: React.FC<{content:string}> = ({content})=>{
+  const {width} = useWindowDimensions();
+  const maxW = Math.min(width - theme.space[3], 600);
+  return (
+    <View style={[styles.card,{maxWidth:maxW}]}>
+      <Markdown style={{body:{color:theme.colors.text,fontSize:16,lineHeight:24}}}>
+        {content}
+      </Markdown>
+    </View>
+  );
+};
+
+const ColorTagStrip: React.FC<{jsonTag:string}> = ({jsonTag})=>{
+  let tag = { palette: [] as string[], tagId: '' };
+  try { tag = JSON.parse(jsonTag); } catch {}
+  return (
+    <View style={{marginVertical:theme.space[2]}}>
+      <Text style={{color:theme.colors.accent,fontSize:12}}>Tag: {tag.tagId}</Text>
+      <View style={{flexDirection:'row',flexWrap:'wrap'}}>
+        {tag.palette.map((h,i)=>(
+          <Pressable key={i} onLongPress={()=>{
+            Clipboard.setString(h);
+            Alert.alert(`Copied ${h}`);
+          }}>
+            <View style={{
+              backgroundColor:h,width:20,height:20,margin:1,
+              borderRadius:2,borderWidth:1,borderColor:theme.colors.text
+            }}/>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+const FoodScannerScreen: React.FC = () => {
+  const {settings} = useContext(SettingsContext);
   const {image,pick} = useImagePicker();
   const {run,loading,error} = useAI(PROMPTS.capture);
   const [result,setResult]=useState('');
@@ -636,11 +595,16 @@ const FoodScannerScreen:React.FC = () => {
   const scan=async()=>{
     if(!image) return Alert.alert('Select image');
     try{
-      const r=await run({textPrompt:'Scan for hazards & color vector',imageBase64:image.base64!,imageMime:image.type!});
-      const parsed=JSON.parse(r);
-      setResult(parsed.summary);
-      setVec(parsed.colorVec);
-      DBService.insertScan(`Scan:${image.uri}`,parsed.summary,parsed.tagJson,parsed.colorVec);
+      const r = await run({
+        imageBase64:image.base64!,
+        imageMime:image.type!,
+        lactoseSensitivity:settings.lactoseSensitivity,
+        peanutAllergy:settings.peanutAllergy,
+        veganPreference:settings.veganPreference,
+      });
+      setResult(r);
+      // colorVec and colorTag not provided by capture prompt, placeholder:
+      DBService.insertScan(`Scan:${image.uri}`, r, '', []);
     }catch(e:any){
       Alert.alert('Scan error',e.message);
     }
@@ -655,40 +619,36 @@ const FoodScannerScreen:React.FC = () => {
           : <Text style={styles.placeholder}>Tap to select</Text>}
       </Pressable>
       {error && <Text style={styles.error}>{error}</Text>}
-      <Pressable style={apiLoaded && !loading ? styles.button : styles.buttonDisabled} onPress={scan} disabled={!apiLoaded||loading}>
+      <Pressable style={apiLoaded && !loading ? styles.button : styles.buttonDisabled}
+                 onPress={scan} disabled={!apiLoaded||loading}>
         <Text style={styles.buttonText}>{loading?'Scanning…':'Scan Food'}</Text>
         {loading && <ActivityIndicator style={{marginLeft:8}} color={theme.colors.bg}/>}
       </Pressable>
       {result && <AIReplyCard content={result}/>}
-      {vec.length>0 && <ColorTagStrip jsonTag={JSON.stringify({palette:[],tagId:''})}/>}
     </ScrollView>
   );
 };
 
-const OvenScreen:React.FC = () => {
+const OvenScreen: React.FC = () => {
+  const {settings} = useContext(SettingsContext);
   const {image,pick}=useImagePicker();
   const cpu=useCpuMonitor();
   const {run:runOven,loading:ovLoad,error:ovErr}=useAI(PROMPTS.ovenAI);
-  const {run:runTag,loading:tagLoad}=useAI(PROMPTS.capture);
   const [report,setReport]=useState<any>(null);
-  const [colorTag,setColorTag]=useState('');
-  const [vec,setVec]=useState<number[]>([]);
-  const [apiLoaded,setApiLoaded]=useState(false);
-
-  useEffect(()=>{ loadApiKey().then(k=>setApiLoaded(!!k)); },[]);
 
   const analyze=async()=>{
     if(!image) return Alert.alert('Select image');
     try{
-      const entropy=await computeCpuEntropy(cpu);
-      const ov=await runOven({imageBase64:image.base64!,imageMime:image.type!,quantum_str:`Entropy:${entropy.toFixed(4)}`});
-      const parsedOv=JSON.parse(ov);
-      setReport(parsedOv);
-      const tagResult=await runTag({textPrompt:'Generate secure color tag and vector JSON:',imageBase64:image.base64!,imageMime:image.type!});
-      const parsedTag=JSON.parse(tagResult);
-      setColorTag(parsedTag.tagJson);
-      setVec(parsedTag.colorVec);
-      DBService.insertScan(`Img:${image.uri},CPU:${cpu}`,ov,parsedTag.tagJson,parsedTag.colorVec);
+      const entropy = await DeviceInfo.getSystemCpuLoad().then(l=>l*100);
+      const r = await runOven({
+        imageBase64:image.base64!,
+        imageMime:image.type!,
+        quantum_str:`Entropy:${entropy.toFixed(2)}`,
+        lactoseSensitivity:settings.lactoseSensitivity,
+        peanutAllergy:settings.peanutAllergy,
+        veganPreference:settings.veganPreference,
+      });
+      setReport(JSON.parse(r));
     }catch(e:any){
       Alert.alert('Analyze error',e.message);
     }
@@ -704,29 +664,29 @@ const OvenScreen:React.FC = () => {
       </Pressable>
       <Text style={styles.text}>CPU Usage: {cpu}%</Text>
       {ovErr && <Text style={styles.error}>{ovErr}</Text>}
-      <Pressable style={apiLoaded && !ovLoad && !tagLoad ? styles.button : styles.buttonDisabled} onPress={analyze} disabled={!apiLoaded||ovLoad||tagLoad}>
-        <Text style={styles.buttonText}>{ovLoad||tagLoad?'Analyzing…':'Analyze & Tag'}</Text>
-        {(ovLoad||tagLoad) && <ActivityIndicator style={{marginLeft:8}} color={theme.colors.bg}/>}
+      <Pressable style={!ovLoad?styles.button:styles.buttonDisabled}
+                 onPress={analyze} disabled={ovLoad}>
+        <Text style={styles.buttonText}>{ovLoad?'Analyzing…':'Analyze Oven'}</Text>
+        {ovLoad && <ActivityIndicator style={{marginLeft:8}} color={theme.colors.bg}/>}
       </Pressable>
       {report && (
         <View style={styles.card}>
-          <Text style={styles.text}>🔥 Dryness Risk: {report.drynessRisk.toUpperCase()}</Text>
-          <Text style={styles.text}>🔥 Burning Risk: {report.burningRisk.toUpperCase()}</Text>
-          <Text style={styles.text}>🛠️ Mitigation Tips:</Text>
-          {report.mitigationTips.map((s:string,i:number)=>(
-            <Text key={i} style={styles.text}>• {s}</Text>
+          <Text style={styles.text}>Completion: {report.completionPercent}%</Text>
+          <Text style={styles.text}>Dryness Risk: {report.drynessRisk}</Text>
+          <Text style={styles.text}>Burning Risk: {report.burningRisk}</Text>
+          <Text style={styles.text}>Mitigation Tips:</Text>
+          {report.mitigationTips.map((t:string,i:number)=>(
+            <Text key={i} style={styles.text}>• {t}</Text>
           ))}
         </View>
       )}
-      {colorTag && <ColorTagStrip jsonTag={colorTag}/>}
     </ScrollView>
   );
 };
 
-const HistoryScreen:React.FC = () => {
+const HistoryScreen: React.FC = () => {
   const [scans,setScans]=useState<any[]>([]);
   useEffect(()=>{ DBService.getScans(setScans); },[]);
-
   return (
     <FlatList
       contentContainerStyle={styles.body}
@@ -747,51 +707,65 @@ const HistoryScreen:React.FC = () => {
   );
 };
 
-const SimilarScansScreen:React.FC = () => {
+const SimilarScansScreen: React.FC = () => {
   const [related,setRelated]=useState<any[]>([]);
   useEffect(()=>{
     DBService.getScans(all=>{
-      if(all.length>0) setRelated(findSimilarScans(all[0].colorVec,all,5));
+      if(all.length>0){
+        const target = all[0].colorVec;
+        const dist = (a:number[],b:number[])=>{
+          let sum=0;
+          for(let i=0;i<Math.min(a.length,b.length);i++){
+            sum += (a[i]-b[i])**2;
+          }
+          return Math.sqrt(sum);
+        };
+        const sims = all.map(s=>({...s,d:dist(s.colorVec,target)}))
+                        .sort((a,b)=>a.d-b.d)
+                        .slice(1,6);
+        setRelated(sims);
+      }
     });
   },[]);
-
   return (
     <ScrollView contentContainerStyle={styles.body} style={styles.main}>
-      <Text style={styles.heading}>🔍 Related Past Scans</Text>
+      <Text style={styles.heading}>🔍 Related Scans</Text>
       {related.map((s,i)=>(
         <View key={i} style={styles.card}>
-          <Text style={styles.text}>
-            {new Date(s.timestamp).toLocaleString()} (dist {s.distance.toFixed(2)})
-          </Text>
-          <Text style={styles.text}>Prompt: {s.prompt}</Text>
+          <Text style={styles.text}>{new Date(s.timestamp).toLocaleString()} (dist {s.d.toFixed(2)})</Text>
+          <Text style={styles.text}>Response: {s.response}</Text>
         </View>
       ))}
     </ScrollView>
   );
 };
 
-const FoodCalendarScreen:React.FC = () => {
-  const {run,loading,error}=useAI(PROMPTS.foodCalendar);
+const FoodCalendarScreen: React.FC = () => {
+  const {settings} = useContext(SettingsContext);
+  const {run,loading,error} = useAI(PROMPTS.foodCalendar);
   const [plan,setPlan]=useState<any>(null);
   const [scans,setScans]=useState<any[]>([]);
-
   useEffect(()=>{ DBService.getScans(setScans); },[]);
-
   const generate=async()=>{
     try{
-      const js=JSON.stringify(scans.slice(0,10));
-      const r=await run({pastScans:js});
+      const json = JSON.stringify(scans.slice(0,10));
+      const r = await run({
+        pastScans: json,
+        lactoseSensitivity:settings.lactoseSensitivity,
+        peanutAllergy:settings.peanutAllergy,
+        veganPreference:settings.veganPreference,
+      });
       setPlan(JSON.parse(r));
     }catch(e:any){
       Alert.alert('Calendar error',e.message);
     }
   };
-
   return (
     <ScrollView contentContainerStyle={styles.body} style={styles.main}>
       <Text style={styles.heading}>📅 AI Food Calendar</Text>
       {error && <Text style={styles.error}>{error}</Text>}
-      <Pressable style={!loading?styles.button:styles.buttonDisabled} onPress={generate} disabled={loading}>
+      <Pressable style={!loading?styles.button:styles.buttonDisabled}
+                 onPress={generate} disabled={loading}>
         <Text style={styles.buttonText}>{loading?'Generating…':'Generate Calendar'}</Text>
         {loading && <ActivityIndicator style={{marginLeft:8}} color={theme.colors.bg}/>}
       </Pressable>
@@ -807,122 +781,9 @@ const FoodCalendarScreen:React.FC = () => {
   );
 };
 
-const OfflineDownloadScreen:React.FC<{onSuccess:()=>void}> = ({onSuccess})=>{
-  const [status,setStatus]=useState<'idle'|'downloading'|'success'|'error'>('idle');
-  const [progress,setProgress]=useState(0);
-  const [msg,setMsg]=useState('');
-
-  const handleDownload=async()=>{
-    setStatus('downloading');
-    const dl = RNFS.downloadFile({
-      fromUrl:MODEL_URL,
-      toFile:MODEL_PATH,
-      begin:()=>setProgress(0),
-      progress:{count:1,callback:res=>setProgress(res.bytesWritten/(res.contentLength||1))}
-    });
-    try{
-      await dl.promise;
-      const hash=CryptoJS.SHA256(await RNFS.readFile(MODEL_PATH,'base64')).toString();
-      if(hash!==EXPECTED_HASH) throw new Error('Integrity check failed');
-      setStatus('success');
-      onSuccess();
-    }catch(e:any){
-      setMsg(e.message);
-      setStatus('error');
-    }
-  };
-
-  return (
-    <View style={styles.body}>
-      <Text style={styles.heading}>🤖 Download Offline Model</Text>
-      {status==='downloading' && <ProgressBarAndroid styleAttr="Horizontal" progress={progress} indeterminate={false}/>}
-      {(status==='idle'||status==='error')&&(
-        <Pressable style={styles.button} onPress={handleDownload}>
-          <Text style={styles.buttonText}>{status==='error'?'Retry Download':'Download TinyLlama Model'}</Text>
-        </Pressable>
-      )}
-      {status==='error'&&<Text style={styles.error}>{msg}</Text>}
-      {status==='success'&&<Text style={styles.text}>Model downloaded & verified!</Text>}
-    </View>
-  );
-};
-
-const OfflineScreen:React.FC = () => {
-  const [modelAvailable,setModelAvailable]=useState(false);
-  const {run,loading,error}=useTiny();
-  const [prompt,setPrompt]=useState('');
-  const [response,setResponse]=useState('');
-
-  useEffect(()=>{
-    isModelDownloaded().then(ok=>{
-      setModelAvailable(ok);
-      if(ok) initTiny();
-    });
-  },[]);
-
-  if(!modelAvailable){
-    return <OfflineDownloadScreen onSuccess={()=>setModelAvailable(true)}/>;
-  }
-
-  const handleRun=async()=>{
-    try{
-      const r=await run(prompt);
-      setResponse(r);
-    }catch{}
-  };
-
-  return (
-    <ScrollView contentContainerStyle={styles.body} style={styles.main}>
-      <Text style={styles.heading}>🤖 Offline AI (TinyLlama)</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Type a prompt..."
-        placeholderTextColor={theme.colors.accent}
-        value={prompt}
-        onChangeText={setPrompt}
-      />
-      <Pressable style={!loading?styles.button:styles.buttonDisabled} onPress={handleRun} disabled={loading}>
-        <Text style={styles.buttonText}>{loading?'Thinking…':'Run TinyLlama'}</Text>
-      </Pressable>
-      {error&&<Text style={styles.error}>{error}</Text>}
-      {response&&<AIReplyCard content={response}/>}
-    </ScrollView>
-  );
-};
-
-const SettingsScreen:React.FC = () => {
-  const {settings,update} = useContext(SettingsContext);
-  return (
-    <ScrollView contentContainerStyle={styles.body} style={styles.main}>
-      <Text style={styles.heading}>⚙️ Dietary Settings</Text>
-      <Text style={styles.label}>Lactose Sensitivity: {settings.lactoseSensitivity}</Text>
-      <Slider
-        minimumValue={0}
-        maximumValue={10}
-        step={1}
-        value={settings.lactoseSensitivity}
-        onValueChange={v=>update({lactoseSensitivity:v})}
-        style={styles.slider}
-      />
-      <Text style={styles.label}>Peanut Allergy:</Text>
-      <Switch value={settings.peanutAllergy} onValueChange={v=>update({peanutAllergy:v})}/>
-      <Text style={styles.label}>Vegan Preference: {settings.veganPreference}</Text>
-      <Slider
-        minimumValue={0}
-        maximumValue={10}
-        step={1}
-        value={settings.veganPreference}
-        onValueChange={v=>update({veganPreference:v})}
-        style={styles.slider}
-      />
-      <Text style={styles.text}>0 = No preference, 10 = Strictly vegan</Text>
-    </ScrollView>
-  );
-};
-
-const ApiKeySetup:React.FC = () => {
+const ApiKeySetup: React.FC = () => {
   const [key,setKey]=useState('');
-  const saveKey=async()=>{
+  const saveKeyHandler=async()=>{
     if(!key.startsWith('sk-')) return Alert.alert('Invalid key');
     await saveApiKey(key);
     Alert.alert('API key saved securely');
@@ -938,22 +799,49 @@ const ApiKeySetup:React.FC = () => {
         value={key}
         onChangeText={setKey}
       />
-      <Pressable style={styles.button} onPress={saveKey}>
+      <Pressable style={styles.button} onPress={saveKeyHandler}>
         <Text style={styles.buttonText}>Save Key</Text>
       </Pressable>
     </ScrollView>
   );
 };
 
-const AboutScreen:React.FC = () => (
+const SettingsScreen: React.FC = () => {
+  const {settings,update} = useContext(SettingsContext);
+  return (
+    <ScrollView contentContainerStyle={styles.body} style={styles.main}>
+      <Text style={styles.heading}>⚙️ Dietary Settings</Text>
+      <Text style={styles.label}>Lactose Sensitivity: {settings.lactoseSensitivity}</Text>
+      <Slider
+        minimumValue={0} maximumValue={10} step={1}
+        value={settings.lactoseSensitivity}
+        onValueChange={v=>update({lactoseSensitivity:v})}
+        style={styles.slider}
+      />
+      <Text style={styles.label}>Peanut Allergy:</Text>
+      <Switch value={settings.peanutAllergy} onValueChange={v=>update({peanutAllergy:v})}/>
+      <Text style={styles.label}>Vegan Preference: {settings.veganPreference}</Text>
+      <Slider
+        minimumValue={0} maximumValue={10} step={1}
+        value={settings.veganPreference}
+        onValueChange={v=>update({veganPreference:v})}
+        style={styles.slider}
+      />
+      <Text style={styles.text}>0 = No preference, 10 = Strictly vegan</Text>
+    </ScrollView>
+  );
+};
+
+const AboutScreen: React.FC = () => (
   <ScrollView contentContainerStyle={styles.body} style={styles.main}>
     <Text style={styles.heading}>ℹ️ About This App</Text>
     <Text style={styles.text}>
-      Hi! I’m <Text style={{fontWeight:'600'}}>Graylan01</Text>, developer behind Swamp Rabbit Café & Grocery Tree Oracle. This app blends farm‑to‑table care, quantum computing insights, AI vision, and on‑device TinyLlama. Built with: React Native, GPT‑4o Vision, TinyLlama, PennyLane-lite, AES‑GCM, SQLite. A personal passion project for smarter, safer cooking—even offline! 🐇💚
+      Hi! I’m <Text style={{fontWeight:'600'}}>Graylan01</Text>, developer behind Swamp Rabbit Café & Grocery Tree Oracle. This app blends farm‑to‑table care, quantum computing insights, AI vision, and on‑device encryption. Built with React Native, GPT‑4o Vision, PennyLane-lite, AES‑GCM, SQLite. A personal passion project for smarter, safer cooking—even offline! 🐇💚
     </Text>
   </ScrollView>
 );
 
+/* ─── Navigation ────────────────────────────────────────────────────── */
 const Tab = createBottomTabNavigator();
 
 export default function App() {
@@ -970,12 +858,11 @@ export default function App() {
               tabBarIcon:({color,size})=>(
                 <Icon
                   name={{
-                    Scanner:'camera-outline',
+                    Scanner:'scan-outline',
                     Oven:'flame-outline',
-                    History:'document-text-outline',
+                    History:'time-outline',
                     Similar:'search-outline',
                     Calendar:'calendar-outline',
-                    Offline:'download-outline',
                     Setup:'key-outline',
                     Settings:'settings-outline',
                     About:'information-circle-outline',
@@ -994,7 +881,6 @@ export default function App() {
             <Tab.Screen name="History" component={HistoryScreen}/>
             <Tab.Screen name="Similar" component={SimilarScansScreen} options={{title:'Related'}}/>
             <Tab.Screen name="Calendar" component={FoodCalendarScreen}/>
-            <Tab.Screen name="Offline" component={OfflineScreen}/>
             <Tab.Screen name="Setup" component={ApiKeySetup}/>
             <Tab.Screen name="Settings" component={SettingsScreen}/>
             <Tab.Screen name="About" component={AboutScreen}/>
