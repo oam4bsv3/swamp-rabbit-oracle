@@ -1,0 +1,217 @@
+name: Android APK (auto-scaffold + fresh keystore)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KEY_ALIAS: swamprabbit       # fixed alias is fine to store in-repo
+
+    steps:
+    #######################################################################
+    # 0 – Check out code (we need full history so we can push back changes)
+    #######################################################################
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    #######################################################################
+    # 1 – If android/gradlew is missing, scaffold Expo native projects
+    #     (the entire init-expo.sh script is embedded here)
+    #######################################################################
+    - name: Bootstrap native projects (inline)
+      if: ${{ !exists('android/gradlew') }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::notice::android/gradlew not found – running inline Expo bootstrap"
+
+        ############ 1. Config ############
+        APP_NAME="SwampRabbitApp"
+        TEMPLATE="expo-template-blank-typescript"
+        ENV_FILE=".env"
+        KEYSTORE_DIR="android/app"
+        KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
+        KEY_ALIAS="$KEY_ALIAS"         # reuse env alias
+        ENCRYPTION_SECRET=$(openssl rand -hex 32)
+        TINYLLAMA_SHA256=$(openssl rand -hex 32)
+        KEYSTORE_PASSWORD=$(openssl rand -hex 16)
+        KEY_PASSWORD=$(openssl rand -hex 16)
+
+        ############ 2. Create Expo project ############
+        npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --npm --no-install
+
+        # Move generated files into repo root, then delete temp folder
+        shopt -s dotglob
+        mv "$APP_NAME"/* .
+        rm -rf "$APP_NAME"
+
+        ############ 3. Ensure .env ignored ############
+        grep -qxF "$ENV_FILE" .gitignore || echo "$ENV_FILE" >> .gitignore
+
+        ############ 4. JS deps ############
+        yarn add \
+          @react-native-async-storage/async-storage \
+          react-native-encrypted-storage \
+          react-native-sqlite-storage \
+          react-native-linear-gradient \
+          @react-native-community/slider \
+          react-native-markdown-display \
+          react-native-vector-icons \
+          react-native-image-picker \
+          @react-native-clipboard/clipboard \
+          react-native-config \
+          react-native-fs \
+          @react-navigation/native \
+          @react-navigation/bottom-tabs \
+          react-native-device-info \
+          tinyllama-react-native \
+          axios \
+          crypto-js
+
+        ############ 5. Prebuild (creates android/ & ios/) ############
+        npx expo prebuild --no-install
+
+        ############ 6. Temporary .env ############
+        cat > "$ENV_FILE" <<EOF
+        ENCRYPTION_SECRET=$ENCRYPTION_SECRET
+        TINYLLAMA_SHA256=$TINYLLAMA_SHA256
+        EOF
+
+        ############ 7. Dev keystore ############
+        mkdir -p "$KEYSTORE_DIR"
+        keytool -genkeypair \
+          -v \
+          -keystore "$KEYSTORE_FILE" \
+          -alias "$KEY_ALIAS" \
+          -keyalg RSA -keysize 2048 -validity 10000 \
+          -storepass "$KEYSTORE_PASSWORD" \
+          -keypass  "$KEY_PASSWORD" \
+          -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
+
+        ############ 8. credentials.json ############
+        cat > android/credentials.json <<JSON
+        {
+          "android": {
+            "keystore": {
+              "keystorePath": "$KEYSTORE_FILE",
+              "keystorePassword": "$KEYSTORE_PASSWORD",
+              "keyAlias": "$KEY_ALIAS",
+              "keyPassword": "$KEY_PASSWORD"
+            }
+          }
+        }
+JSON
+
+        ############ 9. eas.json ############
+        cat > eas.json <<'EAS'
+        {
+          "build": {
+            "production": {
+              "android": { "buildType": "apk", "releaseChannel": "production" },
+              "ios":     { "releaseChannel": "production" }
+            }
+          }
+        }
+EAS
+
+        ############ 10. iOS pods (macOS only) ############
+        if [ -d ios ]; then
+          (cd ios && pod install || true)
+        fi
+
+        ############ 11. Clean temp .env ############
+        rm -f "$ENV_FILE"
+
+        ############ 12. Commit scaffold so later runs skip bootstrap ############
+        git config --global user.email "ci@github"
+        git config --global user.name  "GitHub Actions"
+        git add android ios app.json eas.json package.json yarn.lock || true
+        git commit -m "CI: scaffold Expo native projects" || true
+        git push origin HEAD:${GITHUB_REF#refs/heads/}
+
+    #######################################################################
+    # 2 – Node / Yarn (cached)
+    #######################################################################
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+        cache: yarn
+
+    - run: yarn install --frozen-lockfile
+
+    #######################################################################
+    # 3 – Java 17 + Android SDK
+    #######################################################################
+    - name: Set up Java 17
+      uses: actions/setup-java@v3
+      with:
+        distribution: temurin
+        java-version: 17
+
+    - name: Install Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        accept-android-sdk-licenses: true
+        packages: |
+          platform-tools
+          platforms;android-33
+          build-tools;33.0.0
+
+    #######################################################################
+    # 4 – Fresh keystore per run (good for internal testing)
+    #######################################################################
+    - name: Generate signing keystore
+      run: |
+        set -e
+        STORE_PASS=$(openssl rand -hex 16)
+        KEY_PASS=$(openssl rand -hex 16)
+        echo "STORE_PASS=$STORE_PASS" >> "$GITHUB_ENV"
+        echo "KEY_PASS=$KEY_PASS"     >> "$GITHUB_ENV"
+
+        mkdir -p android/app
+        keytool -genkeypair \
+          -v \
+          -keystore android/app/release.keystore \
+          -alias "$KEY_ALIAS" \
+          -keyalg RSA -keysize 2048 -validity 10000 \
+          -storepass "$STORE_PASS" \
+          -keypass  "$KEY_PASS" \
+          -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
+
+    #######################################################################
+    # 5 – Append signing props into Gradle
+    #######################################################################
+    - name: Configure Gradle signing
+      run: |
+        cat <<EOF >> android/gradle.properties
+        MYAPP_UPLOAD_STORE_FILE=release.keystore
+        MYAPP_UPLOAD_KEY_ALIAS=${{ env.KEY_ALIAS }}
+        MYAPP_UPLOAD_STORE_PASSWORD=${{ env.STORE_PASS }}
+        MYAPP_UPLOAD_KEY_PASSWORD=${{ env.KEY_PASS }}
+        EOF
+
+    #######################################################################
+    # 6 – Build signed release APK
+    #######################################################################
+    - name: Make gradlew executable
+      run: chmod +x android/gradlew
+
+    - name: Build release APK
+      working-directory: android
+      run: ./gradlew clean assembleRelease --no-daemon
+
+    #######################################################################
+    # 7 – Upload artifact
+    #######################################################################
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: swamp-rabbit-oracle.apk
+        path: android/app/build/outputs/apk/release/app-release.apk
