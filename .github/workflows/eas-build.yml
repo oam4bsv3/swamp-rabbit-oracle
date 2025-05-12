@@ -35,28 +35,38 @@ jobs:
           # Verify installation
           "${ANDROID_SDK_ROOT}/cmdline-tools/16.0/bin/sdkmanager" --list | grep "33"
 
-      # 3️⃣ Checkout your code
+      # 3️⃣ Checkout your code (includes your custom App.tsx)
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 4️⃣ Bootstrap & prebuild Expo native
+      # 4️⃣ Bootstrap & prebuild Expo native (preserve App.tsx)
       - name: Bootstrap & prebuild Expo native project
         run: |
           set -euo pipefail
           echo "::notice::Bootstrapping Expo native project…"
 
+          # Backup existing App.tsx so scaffold doesn't overwrite it
+          if [ -f App.tsx ]; then
+            cp App.tsx App.tsx.bak
+          fi
+
           APP_NAME="SwampRabbitApp"
           TEMPLATE="expo-template-blank-typescript"
 
-          # 4a. Create managed project
+          # Create managed project
           npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --yes --no-install
           shopt -s dotglob
           mv "$APP_NAME"/* .
           rm -rf "$APP_NAME"
 
-          # 4b. Install JS deps + native modules
+          # Restore original App.tsx
+          if [ -f App.tsx.bak ]; then
+            mv App.tsx.bak App.tsx
+          fi
+
+          # Install dependencies
           yarn install --frozen-lockfile
           yarn add \
             @react-native-async-storage/async-storage \
@@ -76,7 +86,7 @@ jobs:
             axios \
             crypto-js
 
-          # 4c. Prebuild native folders (android/ + ios/)
+          # Generate native projects
           npx expo prebuild --no-install --non-interactive
 
       # 5️⃣ Set up Node.js (cache Yarn)
