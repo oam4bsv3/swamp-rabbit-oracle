@@ -1,3 +1,5 @@
+
+
 # 🐇 Swamp Rabbit Café & Grocery Tree Oracle
 
 (\_/)
@@ -176,7 +178,90 @@ A: CSV export & cloud sync are planned for v2.0 (coming soon!).
 
 5. High‑five from Sir Hops‑A‑Lot III 🐇
 
+# 🛡️ Privacy Policy  
+_Last updated: 12 May 2025_
 
+Swamp Rabbit Café & Grocery Tree Oracle (“the App,” “we,” “our,” “us”) is an **offline-first** mobile application that values your right to privacy. This document explains what data we collect, how we use it, and the choices you have.
+
+---
+
+## 1. Data We Collect
+
+| Category | What | When | Stored? | Encryption |
+|----------|------|------|---------|------------|
+| **Images** | Photos you select or capture for scanning | Only during a scan session | **Not** persistently saved unless you explicitly export | Transmitted once to OpenAI over TLS |
+| **Scan Results** | AI responses, color tags, risk scores | After a successful scan | Yes (SQLite) | AES-256-GCM |
+| **OpenAI API Key** | Your personal API token | When you save it in Setup | Yes (EncryptedStorage) | AES-256-GCM |
+| **Dietary Settings** | Lactose, peanut, vegan preferences | When you adjust sliders | Yes (AsyncStorage) | Plaintext (device-local only) |
+| **Crash / Error Logs** | Stack traces (opt-in only) | On app crash | No remote logging—saved locally until you share | — |
+
+We **do not** collect GPS, contacts, or any advertising identifiers.
+
+---
+
+## 2. How We Use Data
+
+1. **Food & Plant Scanning** – Images are converted to Base64 and sent via HTTPS to OpenAI’s GPT-4o Vision endpoint for analysis.  
+2. **Oven Analysis** – Same flow as above, plus a CPU-entropy string for quantum calculations.  
+3. **History & Related Tabs** – Results are stored locally (encrypted) so you can revisit previous scans.  
+4. **Meal Calendar** – Past scans are summarized (locally) and the summary text is sent to OpenAI to generate a plan.
+
+We never sell, rent, or monetize your data.
+
+---
+
+## 3. Third-Party Services
+
+| Service | Purpose | Policy |
+|---------|---------|--------|
+| **OpenAI API** | Cloud-based image & text analysis | <https://openai.com/policies/privacy-policy> |
+| **React Native Encrypted Storage** | Secure key/value storage | Local-only, open-source |
+| **SQLite** | Offline database | Local-only, open-source |
+
+---
+
+## 4. Data Retention & Deletion
+
+- **Local Data** – Remains on your device indefinitely. Clear it any time via **Settings → Clear History** (coming soon) or by uninstalling the app.  
+- **OpenAI** – Images and prompts are kept by OpenAI per their policy (currently 30 days) for abuse monitoring, then deleted. We do not control this retention period.
+
+---
+
+## 5. Security Measures
+
+- **Transport** – All API requests use HTTPS/TLS 1.2+.  
+- **At Rest** –  
+  - API key & AES key: AES-256-GCM via `react-native-encrypted-storage`  
+  - Scan history: field-level AES-GCM inside SQLite  
+- **Key Rotation** – The internal AES key auto-rotates every 30 days.  
+- **Least Permissions** – The app requests Camera & Storage only when needed.
+
+---
+
+## 6. Children’s Privacy
+
+The App is **not directed to children under 13**. We do not knowingly collect personal data from children. If a parent or guardian learns that a child has provided personal data, please contact us to delete it.
+
+---
+
+## 7. Your Choices
+
+- **Opt-Out of Cloud Scans** – Use the Quantum tab or History browsing; these features are fully offline.  
+- **Delete Local Data** – Uninstall the app or (soon) use the in-app “Clear History” button.  
+- **Revoke OpenAI Consent** – Remove your API key from **Setup**.
+
+---
+
+## 8. Changes to This Policy
+
+We may update this Privacy Policy to reflect new features or regulations. We’ll notify you via an in-app banner 7 days before changes take effect. Continued use after the effective date indicates acceptance.
+
+---
+
+## 9. Contact us in Github issues 
+---
+
+**Thank you for trusting Sir Hops-A-Lot III with your data—he guards those bits like carrots. 🥕**
 
 Please follow our CONTRIBUTING.md for details.
 
@@ -185,7 +270,7 @@ Please follow our CONTRIBUTING.md for details.
 
 📄 License
 
-MIT © Graylan Janulis
+GPL3 © Graylan Janulis
 
 
 ---
