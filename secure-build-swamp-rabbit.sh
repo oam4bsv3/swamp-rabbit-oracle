@@ -1,26 +1,39 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-set -e
+###############################################################################
+# init-expo.sh
+#
+# Bootstrap an Expo‑managed React Native app with:
+#  • TypeScript template
+#  • .env management (git‑ignored)
+#  • Android keystore generation & injection
+#  • iOS prebuild (optional)
+#  • EAS build profiles
+###############################################################################
 
 APP_NAME="SwampRabbitApp"
+TEMPLATE="expo-template-blank-typescript"
+ENV_FILE=".env"
 KEYSTORE_DIR="android/app"
 KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
-ENV_FILE=".env"
-
 KEY_ALIAS="swamprabbit"
-KEY_PASSWORD=$(openssl rand -hex 16)
+# generate strong random secrets
+ENCRYPTION_SECRET=$(openssl rand -hex 32)
+TINYLLAMA_SHA256=$(openssl rand -hex 32)
 KEYSTORE_PASSWORD=$(openssl rand -hex 16)
-AES_KEY=$(openssl rand -hex 32)
-TINY_HASH=$(openssl rand -hex 32)
+KEY_PASSWORD=$(openssl rand -hex 16)
 
-echo "==> Initializing app"
-npx react-native init $APP_NAME --template react-native-template-typescript
-cd $APP_NAME
+echo "==> 1. Create Expo project"
+npx expo init "$APP_NAME" --template "$TEMPLATE"
+cd "$APP_NAME"
 
-echo "==> Ensuring .env is git-ignored"
-echo ".env" >> .gitignore
+echo
+echo "==> 2. Git‑ignore environment file"
+grep -qxF "$ENV_FILE" .gitignore || echo "$ENV_FILE" >> .gitignore
 
-echo "==> Installing dependencies"
+echo
+echo "==> 3. Install dependencies"
 yarn add \
   @react-native-async-storage/async-storage \
   react-native-encrypted-storage \
@@ -33,60 +46,94 @@ yarn add \
   @react-native-clipboard/clipboard \
   react-native-config \
   react-native-fs \
-  @pennylane/wasm \
   @react-navigation/native \
   @react-navigation/bottom-tabs \
-  @react-native-community/progress-bar-android \
   react-native-device-info \
   tinyllama-react-native \
   axios \
   crypto-js
 
-echo "==> Installing iOS pods"
-cd ios && pod install && cd ..
+echo
+echo "==> 4. Expo prebuild (generates native projects)"
+npx expo prebuild --no-install
 
-echo "==> Writing .env with secure values"
-echo "ENCRYPTION_SECRET=$AES_KEY" > $ENV_FILE
-echo "TINYLLAMA_SHA256=$TINY_HASH" >> $ENV_FILE
-
-echo "==> Generating Android keystore"
-mkdir -p $KEYSTORE_DIR
-keytool -genkeypair -v -keystore $KEYSTORE_FILE \
-  -alias $KEY_ALIAS -keyalg RSA -keysize 2048 -validity 10000 \
-  -storepass $KEYSTORE_PASSWORD -keypass $KEY_PASSWORD \
-  -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
-
-echo "==> Writing Gradle properties"
-cat <<EOF >> android/gradle.properties
-MYAPP_UPLOAD_STORE_FILE=release.keystore
-MYAPP_UPLOAD_KEY_ALIAS=$KEY_ALIAS
-MYAPP_UPLOAD_STORE_PASSWORD=$KEYSTORE_PASSWORD
-MYAPP_UPLOAD_KEY_PASSWORD=$KEY_PASSWORD
+echo
+echo "==> 5. Write .env with secure values"
+cat > "$ENV_FILE" <<EOF
+ENCRYPTION_SECRET=$ENCRYPTION_SECRET
+TINYLLAMA_SHA256=$TINYLLAMA_SHA256
 EOF
 
-echo "==> Injecting signingConfigs into build.gradle"
-sed -i '/defaultConfig {/a \
-    signingConfigs {\n\
-        release {\n\
-            storeFile file(MYAPP_UPLOAD_STORE_FILE)\n\
-            storePassword MYAPP_UPLOAD_STORE_PASSWORD\n\
-            keyAlias MYAPP_UPLOAD_KEY_ALIAS\n\
-            keyPassword MYAPP_UPLOAD_KEY_PASSWORD\n\
-        }\n\
-    }' android/app/build.gradle
+echo
+echo "==> 6. Generate Android keystore"
+mkdir -p "$KEYSTORE_DIR"
+keytool -genkeypair \
+  -v \
+  -keystore "$KEYSTORE_FILE" \
+  -alias "$KEY_ALIAS" \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000 \
+  -storepass "$KEYSTORE_PASSWORD" \
+  -keypass "$KEY_PASSWORD" \
+  -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
 
-sed -i '/buildTypes {/a \
-    release {\n\
-        signingConfig signingConfigs.release\n\
-        shrinkResources false\n\
-        minifyEnabled false\n\
-    }' android/app/build.gradle
+echo
+echo "==> 7. Configure Android buildCredentials.json"
+cat > android/credentials.json <<EOF
+{
+  "android": {
+    "keystore": {
+      "keystorePath": "$KEYSTORE_FILE",
+      "keystorePassword": "$KEYSTORE_PASSWORD",
+      "keyAlias": "$KEY_ALIAS",
+      "keyPassword": "$KEY_PASSWORD"
+    }
+  }
+}
+EOF
 
-echo "==> Building Android release APK"
-cd android && ./gradlew assembleRelease && cd ..
+echo
+echo "==> 8. EAS Build profile setup"
+# Create eas.json if missing
+if [ ! -f eas.json ]; then
+  cat > eas.json <<EAS
+{
+  "build": {
+    "production": {
+      "android": {
+        "buildType": "apk",
+        "releaseChannel": "production"
+      },
+      "ios": {
+        "releaseChannel": "production"
+      }
+    }
+  }
+}
+EAS
+fi
 
-echo "==> Cleaning up .env to avoid accidental commit"
-rm -f .env
+echo
+echo "==> 9. Install iOS pods"
+pushd ios >/dev/null
+pod install
+popd >/dev/null
 
-echo "==> Done."
-echo "Release APK located at: android/app/build/outputs/apk/release/app-release.apk"
+echo
+echo "==> 10. (Optional) Run a local build"
+echo "    To build Android locally:"
+echo "      eas build -p android --profile production"
+echo
+echo "    To build iOS locally (macOS):"
+echo "      eas build -p ios --profile production"
+
+echo
+echo "==> 11. Cleanup sensitive .env"
+rm -f "$ENV_FILE"
+
+echo
+echo "==> Bootstrap complete! 🎉"
+echo "    • App directory: $(pwd)"
+echo "    • Android keystore: $KEYSTORE_FILE"
+echo "    • EAS build profiles in eas.json"
