@@ -1,4 +1,4 @@
-name: Android APK (auto-scaffold + API 34 secure build)
+name: Android APK (auto-scaffold + API 33 stable build)
 
 on:
   push:
@@ -15,27 +15,20 @@ jobs:
       KEY_ALIAS: swamprabbit
 
     steps:
+      # 0 – Check out full history so we can commit scaffold
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Bootstrap Expo project (if missing)
-        if: ${{ hashFiles('android/gradlew') == '' }}
+      # 1 – Always scaffold & prebuild the Expo native project
+      - name: Bootstrap & prebuild Expo native
         run: |
           set -euo pipefail
           echo "::notice::Bootstrapping Expo native project…"
 
           APP_NAME="SwampRabbitApp"
           TEMPLATE="expo-template-blank-typescript"
-          ENV_FILE=".env"
-          KEYSTORE_DIR="android/app"
-          KEYSTORE_FILE="$KEYSTORE_DIR/release.keystore"
-          ENCRYPTION_SECRET=$(openssl rand -hex 32)
-          TINYLLAMA_SHA256=$(openssl rand -hex 32)
-          KEYSTORE_PASSWORD=$(openssl rand -hex 16)
-          KEY_PASSWORD=$(openssl rand -hex 16)
-
           npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --yes --no-install
           shopt -s dotglob
           mv "$APP_NAME"/* .
@@ -62,31 +55,7 @@ jobs:
 
           npx expo prebuild --no-install --non-interactive
 
-          echo "ENCRYPTION_SECRET=$ENCRYPTION_SECRET" >  "$ENV_FILE"
-          echo "TINYLLAMA_SHA256=$TINYLLAMA_SHA256" >> "$ENV_FILE"
-          grep -qxF "$ENV_FILE" .gitignore || echo "$ENV_FILE" >> .gitignore
-
-          mkdir -p "$KEYSTORE_DIR"
-          keytool -genkeypair -v \
-            -keystore "$KEYSTORE_FILE" \
-            -alias "$KEY_ALIAS" \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass "$KEYSTORE_PASSWORD" \
-            -keypass  "$KEY_PASSWORD" \
-            -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
-
-          cd android
-          ./gradlew wrapper
-          cd ..
-
-          rm -f "$ENV_FILE"
-
-          git config --global user.email "ci@github"
-          git config --global user.name  "GitHub Actions"
-          git add android ios app.json eas.json package.json yarn.lock || true
-          git commit -m "CI: scaffold native project with gradlew" || true
-          git push origin HEAD:${GITHUB_REF#refs/heads/} || true
-
+      # 2 – Node/Yarn setup
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
@@ -95,21 +64,28 @@ jobs:
 
       - run: yarn install --frozen-lockfile
 
+      # 3 – Java & Android SDK (API 33)
       - name: Set up Java 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Install Android SDK (API 34)
+      - name: Install Android SDK (API 33 stable)
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
           packages: |
             platform-tools
-            platforms;android-34
-            build-tools;34.0.0
+            platforms;android-33
+            build-tools;33.0.2
 
+      # 4 – Ensure Gradle wrapper is present
+      - name: Install Gradle wrapper
+        working-directory: android
+        run: ./gradlew wrapper
+
+      # 5 – Generate a fresh keystore per run
       - name: Generate signing keystore
         run: |
           STORE_PASS=$(openssl rand -hex 16)
@@ -126,6 +102,7 @@ jobs:
             -keypass  "$KEY_PASS" \
             -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
 
+      # 6 – Inject signing into Gradle
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
@@ -135,6 +112,7 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=${{ env.KEY_PASS }}
           EOF
 
+      # 7 – Build and upload the signed APK
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
@@ -142,7 +120,7 @@ jobs:
         working-directory: android
         run: ./gradlew clean assembleRelease --no-daemon
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: swamp-rabbit-oracle.apk
