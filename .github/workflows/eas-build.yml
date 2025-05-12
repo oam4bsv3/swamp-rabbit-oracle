@@ -1,4 +1,4 @@
-name: Android APK (SDK‑first + API 33 build)
+name: Android APK (manual SDK install + secure build)
 
 on:
   push:
@@ -13,35 +13,48 @@ jobs:
     runs-on: ubuntu-latest
     env:
       KEY_ALIAS: swamprabbit
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
-      # 1 – Install Android SDK (must come first)
-      - name: Install Android SDK (API 33 stable)
+      # 1️⃣ Install only the base SDK tools & platform-tools
+      - name: Setup Android SDK tools
         uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
-          packages: |
-            platform-tools
-            platforms;android-33
-            build-tools;33.0.2
+          packages: ''                          # skip extras here
 
-      # 2 – Checkout code
+      # 2️⃣ Manually install API 33 platform + build-tools 33.0.2
+      - name: Manually install Android 33 & build-tools 33.0.2
+        run: |
+          set -eux
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platforms;android-33" "build-tools;33.0.2"
+          # Verify
+          "$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --list | grep "33"
+
+      # 3️⃣ Checkout your code
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 3 – Bootstrap & prebuild Expo native project
-      - name: Bootstrap & prebuild Expo native
+      # 4️⃣ Bootstrap & prebuild Expo native
+      - name: Bootstrap & prebuild Expo native project
         run: |
           set -euo pipefail
           echo "::notice::Bootstrapping Expo native project…"
 
-          npx create-expo-app@latest SwampRabbitApp -t expo-template-blank-typescript --yes --no-install
-          shopt -s dotglob
-          mv SwampRabbitApp/* .
-          rm -rf SwampRabbitApp
+          APP_NAME="SwampRabbitApp"
+          TEMPLATE="expo-template-blank-typescript"
+          ENV_FILE=".env"
 
+          # 4a. Create managed project
+          npx create-expo-app@latest "$APP_NAME" -t "$TEMPLATE" --yes --no-install
+          shopt -s dotglob
+          mv "$APP_NAME"/* .
+          rm -rf "$APP_NAME"
+
+          # 4b. Install JS deps + native modules
           yarn install --frozen-lockfile
           yarn add \
             @react-native-async-storage/async-storage \
@@ -61,9 +74,10 @@ jobs:
             axios \
             crypto-js
 
+          # 4c. Prebuild native folders (android/ + ios/)
           npx expo prebuild --no-install --non-interactive
 
-      # 4 – Set up Node.js & Yarn
+      # 5️⃣ Set up Node.js (cache Yarn)
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
@@ -72,19 +86,19 @@ jobs:
 
       - run: yarn install --frozen-lockfile
 
-      # 5 – Set up Java 17
+      # 6️⃣ Set up Java 17
       - name: Set up Java 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
 
-      # 6 – Ensure Gradle wrapper
+      # 7️⃣ Install Gradle wrapper in android/
       - name: Install Gradle wrapper
         working-directory: android
         run: ./gradlew wrapper
 
-      # 7 – Generate a fresh keystore each run
+      # 8️⃣ Generate a fresh keystore each run
       - name: Generate signing keystore
         run: |
           STORE_PASS=$(openssl rand -hex 16)
@@ -101,7 +115,7 @@ jobs:
             -keypass  "$KEY_PASS" \
             -dname "CN=SwampRabbit, OU=Dev, O=Booper, L=Greenville, S=SC, C=US"
 
-      # 8 – Configure Gradle signing
+      # 9️⃣ Inject signing into Gradle
       - name: Configure Gradle signing
         run: |
           cat <<EOF >> android/gradle.properties
@@ -111,7 +125,7 @@ jobs:
           MYAPP_UPLOAD_KEY_PASSWORD=${{ env.KEY_PASS }}
           EOF
 
-      # 9 – Build and upload the signed APK
+      # 🔟 Build & upload the signed APK
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
