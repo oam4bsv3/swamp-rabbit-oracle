@@ -1,6 +1,6 @@
 
 
-# 🐇 Swamp Rabbit Café & Grocery (Unoffical Artful Food Testing Quantum Intel) Tree Oracle
+# 🐇 Swamp Rabbit Café & Grocery (Unoffical Quantum Intel) Tree Oracle
 
      (\_/)
     ( •_•)  “Sir Hops‑A‑Lot III”
