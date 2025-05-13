@@ -87,14 +87,12 @@ Eat safer
 And maybe have a bit of fun with tech that feels like magic
 
 
-Give it a shot — and if it inspires you, maybe build something weird and wonderful too.
-
-(P.S. Swamp Rabbit Café, if you’re reading this: that pasta salad changed my life.)
+Give it a shot — and if it inspires you, give us a share when maybe yoh top build something weird and wonderful for quantum gastronomy. (Heston ref)
 
 
 ---
 
-Let me know if you want this turned into a blog post, Instagram caption, or README!
+
 
 > _“The only app that can scan your salad, simulate a 7‑qubit circuit, and encrypt your grocery list—all before your espresso cools.”_
 
