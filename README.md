@@ -6,17 +6,16 @@
     ( •_•)  “Sir Hops‑A‑Lot III”
     / >🌱   “Hopping between qubits & quinoa since 2025”
 
-Sure! Here's a version that’s more friendly and fun for everyday readers — less techy, more vibes:
 
 
----
 
-How a Pasta Salad at Swamp Rabbit Café Inspired Me to Build an App
+# How a Pasta Salad at Swamp Rabbit Café Inspired Me to Build an App
 
 By Graylan01
 
 
 ---
+# The Story 
 
 I was sitting at Swamp Rabbit Café, eating the best dang pasta salad I’ve had in years. Somewhere between the tangy dressing and the perfect al dente noodles, a weird thought popped into my head:
 
